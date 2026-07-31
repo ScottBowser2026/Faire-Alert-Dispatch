@@ -307,6 +307,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 </head>
 <body>
 
@@ -403,6 +404,11 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const fns = firebase.functions();
+
+function callFn(name, data){
+  return fns.httpsCallable(name)(data).then(r=>r.data);
+}
 
 const SITE_CODES = ['PARF','SRF','KRF','GARF'];
 
@@ -700,20 +706,29 @@ function maskPhone(phone){
 function attemptLogin(){
   const match = users.find(u=>u.pin === pinEntry);
   pinEntry = '';
-  if(match){
-    pendingVerifyUser = match;
-    verifyCode = String(Math.floor(100000 + Math.random()*900000));
-    console.log(`[SMS verification] Would text code ${verifyCode} to ${match.phone} (${fullName(match)})`);
-    document.getElementById('pinCard').style.display = 'none';
-    document.getElementById('verifyCard').style.display = 'block';
-    document.getElementById('verifySentTo').textContent = `We sent a 6-digit code to ${fullName(match)}'s phone, ${maskPhone(match.phone)}.`;
-    document.getElementById('verifyCodeInput').value = '';
-    document.getElementById('verifyError').textContent = '';
-    document.getElementById('verifyDemoNote').textContent = `Demo mode (no SMS backend yet) \u2014 your code is ${verifyCode}`;
-  } else {
+  if(!match){
     document.getElementById('loginError').textContent = 'PIN not recognized. Try again.';
     renderPinDots();
+    return;
   }
+  pendingVerifyUser = match;
+  document.getElementById('loginError').textContent = 'Sending code\u2026';
+  callFn('sendVerificationCode', {userId: match.id, purpose: 'login'})
+    .then(res=>{
+      document.getElementById('loginError').textContent = '';
+      document.getElementById('pinCard').style.display = 'none';
+      document.getElementById('verifyCard').style.display = 'block';
+      document.getElementById('verifySentTo').textContent = `We sent a 6-digit code to ${fullName(match)}'s phone, ${maskPhone(match.phone)}.`;
+      document.getElementById('verifyCodeInput').value = '';
+      document.getElementById('verifyError').textContent = '';
+      document.getElementById('verifyDemoNote').textContent = '';
+    })
+    .catch(e=>{
+      console.error('verification send failed', e);
+      document.getElementById('loginError').textContent = e.message || 'Could not send the code. Try again.';
+      pendingVerifyUser = null;
+      renderPinDots();
+    });
 }
 
 function completeLogin(){
@@ -723,16 +738,12 @@ function completeLogin(){
   currentView = 'send';
   activeSite = match.role === 'superadmin' ? SITE_CODES[0] : match.site;
   selected = new Set();
-  const notification = notifyAdminsOfLogin(match, match.site);
-  logActivity('login', match.site, `${fullName(match)} (${roleLabel(match.role)}) signed in`);
   pendingVerifyUser = null;
   verifyCode = '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appRoot').style.display = 'flex';
   renderAll();
-  if(notification.recipients.length){
-    showToast(`Superusers notified of this login (${notification.recipients.length})`, false);
-  }
+
 }
 
 function backToPinStage(){
@@ -1903,31 +1914,28 @@ document.getElementById('confirmBtn').onclick = ()=>{
   if(isCritical && confirmStep===1){
     confirmStep = 2;
 
-    // Second factor: text a one-time code to the sender's own phone
-    authCode = String(Math.floor(100000 + Math.random()*900000));
-    console.log(`[Authorization] Code ${authCode} would be texted to ${fullName(loggedInUser)} at ${loggedInUser.phone}`);
-
     document.getElementById('warnSlot').innerHTML = `<div class="warn-box"><strong>Final confirmation.</strong> This will immediately text all selected lists the Active Shooter alert shown above. This cannot be undone once sent.</div>`;
     document.getElementById('s2').className = 'done';
-    document.getElementById('authSlot').innerHTML = `
-      <div class="warn-box">A 6-digit authorization code was sent to your phone, ${maskPhone(loggedInUser.phone)}. Enter it below along with your PIN.</div>
-      <div class="time-row">
-        <label for="authCodeInput">Auth code</label>
-        <input type="text" id="authCodeInput" maxlength="6" inputmode="numeric" placeholder="******" style="width:110px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 10px; font-size:13px; font-family:var(--mono); letter-spacing:3px;" />
-      </div>
-      <div class="import-picker-note">Demo mode (no SMS backend yet) \u2014 code is ${authCode}</div>
-    `;
+    document.getElementById('authSlot').innerHTML = `<div class="warn-box">Sending an authorization code to your phone, ${maskPhone(loggedInUser.phone)}\u2026</div>`;
     document.getElementById('confirmBtn').textContent = 'Confirm \u2014 send Active Shooter alert';
+
+    callFn('sendVerificationCode', {userId: loggedInUser.id, purpose: 'authorize'})
+      .then(()=>{
+        document.getElementById('authSlot').innerHTML = `
+          <div class="warn-box">A 6-digit authorization code was sent to your phone, ${maskPhone(loggedInUser.phone)}. Enter it below along with your PIN.</div>
+          <div class="time-row">
+            <label for="authCodeInput">Auth code</label>
+            <input type="text" id="authCodeInput" maxlength="6" inputmode="numeric" placeholder="******" style="width:110px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 10px; font-size:13px; font-family:var(--mono); letter-spacing:3px;" />
+          </div>
+        `;
+      })
+      .catch(e=>{
+        document.getElementById('authSlot').innerHTML = `<div class="warn-box">Could not send the authorization code: ${e.message || 'unknown error'}</div>`;
+      });
     return;
   }
 
-  if(isCritical){
-    const enteredAuth = (document.getElementById('authCodeInput')?.value || '').trim();
-    if(enteredAuth !== authCode){
-      document.getElementById('pinConfirmError').textContent = 'Authorization code doesn\'t match. Check the code sent to your phone.';
-      return;
-    }
-  }
+
 
   const enteredPin = document.getElementById('confirmPinInput').value.trim();
   if(!loggedInUser || enteredPin !== loggedInUser.pin){
@@ -1939,21 +1947,44 @@ document.getElementById('confirmBtn').onclick = ()=>{
   const recipients = recipientsBySite[activeSite];
   const chosen = recipients.filter(r=>selected.has(r.id));
   const names = chosen.map(r=>r.name).join(', ');
-  const headcount = chosen.reduce((n,r)=>n + r.members.length, 0);
   const alertName = pendingAlert.name;
   const site = activeSite;
   const isDrill = pendingAlert.cat === 'test';
   const messageText = document.getElementById('msgBox').innerText;
+  const enteredAuth = (document.getElementById('authCodeInput')?.value || '').trim();
 
-  logActivity(
-    isDrill ? 'drill_sent' : 'alert_sent',
-    site,
-    `${alertName} \u2192 ${names}`,
-    {recipients: headcount, category: pendingAlert.cat, critical: !!pendingAlert.critical, message: messageText}
-  );
+  const btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  document.getElementById('pinConfirmError').style.color = 'var(--muted)';
+  document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
 
-  closeModal();
-  showToast(alertName + ' sent to ' + names + ' \u2014 ' + site, isCritical);
+  const proceed = isCritical
+    ? callFn('verifyCode', {userId: loggedInUser.id, code: enteredAuth})
+    : Promise.resolve();
+
+  proceed
+    .then(()=> callFn('sendAlert', {
+      userId: loggedInUser.id,
+      site,
+      listIds: chosen.map(r=>r.id),
+      message: messageText,
+      alertName,
+      category: pendingAlert.cat,
+      isDrill,
+    }))
+    .then(res=>{
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      closeModal();
+      const failNote = res.failed ? ` (${res.failed} failed)` : '';
+      showToast(`${alertName} sent to ${res.sent} recipient(s) \u2014 ${site}${failNote}`, isCritical);
+      loadAll().then(renderAll);
+    })
+    .catch(e=>{
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = e.message || 'Send failed.';
+    });
 };
 
 function showToast(msg, danger){
@@ -2018,31 +2049,16 @@ function setupForgotPin(){
       return;
     }
 
-    const rate = resetRateCheck(digits);
-    if(!rate.ok){
-      msg.textContent = rate.reason;
-      return;
-    }
-    recordResetAttempt(digits);
-
-    const match = users.find(u =>
-      u.phone.replace(/[^\d]/g,'') === digits &&
-      u.lastName.toLowerCase() === lastName.toLowerCase()
-    );
-
-    // Deliberately vague: don't reveal whether the phone or the name was wrong,
-    // or whether an account exists at all.
-    if(!match){
-      msg.textContent = "If those details match an account, a new PIN has been sent by text.";
-      return;
-    }
-
-    const newPin = String(Math.floor(1000 + Math.random()*9000));
-    match.pin = newPin;
-    saveUser(match);
-    console.log(`[PIN reset] New PIN ${newPin} would be texted to ${fullName(match)} at ${match.phone}`);
-    msg.style.color = 'var(--clear)';
-    msg.textContent = `If those details match an account, a new PIN has been sent by text. (Demo: ${newPin})`;
+    msg.textContent = 'Sending\u2026';
+    callFn('resetPin', {phone: raw, lastName})
+      .then(()=>{
+        msg.style.color = 'var(--clear)';
+        msg.textContent = 'If those details match an account, a new PIN has been sent by text.';
+      })
+      .catch(e=>{
+        msg.style.color = 'var(--safety)';
+        msg.textContent = e.message || 'Could not process that request.';
+      });
   };
 }
 
@@ -2083,12 +2099,16 @@ boot();
 document.getElementById('verifyCodeBtn').onclick = ()=>{
   const entered = document.getElementById('verifyCodeInput').value.trim();
   if(!pendingVerifyUser){ return; }
-  if(entered === verifyCode){
-    completeLogin();
-  } else {
-    document.getElementById('verifyError').textContent = 'That code doesn\'t match. Check the console (demo mode) or your phone and try again.';
-    document.getElementById('verifyCodeInput').value = '';
-  }
+  const btn = document.getElementById('verifyCodeBtn');
+  btn.disabled = true;
+  document.getElementById('verifyError').textContent = 'Checking\u2026';
+  callFn('verifyCode', {userId: pendingVerifyUser.id, code: entered})
+    .then(()=>{ btn.disabled = false; completeLogin(); })
+    .catch(e=>{
+      btn.disabled = false;
+      document.getElementById('verifyError').textContent = e.message || 'That code does not match.';
+      document.getElementById('verifyCodeInput').value = '';
+    });
 };
 document.getElementById('verifyBackBtn').onclick = backToPinStage;
 </script>
