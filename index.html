@@ -575,14 +575,22 @@ async function loadAll(){
   };
 }
 
+function reportSaveError(what){
+  return (e)=>{
+    console.error('Save failed:', what, e);
+    showToast('Could not save ' + what + ': ' + (e.message || 'database error'), true);
+  };
+}
+
 function saveUser(u){
   const {id, ...rest} = u;
-  return db.ref('users/' + id).set(rest);
+  return db.ref('users/' + id).set(rest).catch(e=>{ reportSaveError('account')(e); throw e; });
 }
-function deleteUser(id){ return db.ref('users/' + id).remove(); }
+function deleteUser(id){ return db.ref('users/' + id).remove().catch(reportSaveError('deletion')); }
 
 function saveSiteMeta(s){
-  return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status});
+  return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status})
+    .catch(reportSaveError('site settings'));
 }
 
 function saveList(site, r){
@@ -597,7 +605,7 @@ function saveList(site, r){
     reviewedBy: r.reviewedBy || null,
     fileName: r.fileName || null,
     members,
-  });
+  }).catch(reportSaveError('recipient list'));
 }
 
 function saveOptOuts(site){
@@ -606,7 +614,7 @@ function saveOptOuts(site){
     const key = o.oid || ('o' + Date.now() + '_' + i);
     obj[key] = {name:o.name, phone:o.phone, date:o.date};
   });
-  return db.ref(`sites/${site}/optOuts`).set(obj);
+  return db.ref(`sites/${site}/optOuts`).set(obj).catch(reportSaveError('opt-out list'));
 }
 
 function saveReportSettings(){
@@ -616,7 +624,7 @@ function saveReportSettings(){
     recipients: rec,
     cadence: reportSettings.cadence,
     include: reportSettings.include,
-  });
+  }).catch(reportSaveError('report settings'));
 }
 
 function canSend(){ return currentRole === 'admin' || currentRole === 'superadmin'; }
@@ -1101,10 +1109,13 @@ function renderAdminPanelView(root){
         </select>
         <button class="add-btn" id="addUserBtn">Add account</button>
       </div>
+      <div class="login-error" id="addUserError" style="margin-top:8px;"></div>
     </div>
   `;
   renderUsersTable();
   document.getElementById('addUserBtn').onclick = ()=>{
+    const err = document.getElementById('addUserError');
+    err.textContent = '';
     const lastName = document.getElementById('newUserLastName').value.trim();
     const firstName = document.getElementById('newUserFirstName').value.trim();
     const phone = document.getElementById('newUserPhone').value.replace(/[()]/g, '').replace(/\s+/g,' ').trim();
@@ -1112,17 +1123,40 @@ function renderAdminPanelView(root){
     const pin = document.getElementById('newUserPin').value.trim();
     const role = document.getElementById('newUserRole').value;
     const site = role === 'superadmin' ? 'ALL' : (superadmin ? document.getElementById('newUserSite').value : activeSite);
-    if(!lastName || !firstName || !phone || !/^\d{4}$/.test(pin)){ return; }
+
+    const missing = [];
+    if(!lastName) missing.push('Last Name');
+    if(!firstName) missing.push('First Name');
+    if(!phone) missing.push('Phone');
+    if(missing.length){
+      err.textContent = 'Missing: ' + missing.join(', ');
+      return;
+    }
+    if(phone.replace(/[^\d]/g,'').length < 10){
+      err.textContent = 'Phone number needs at least 10 digits.';
+      return;
+    }
+    if(!/^\d{4}$/.test(pin)){
+      err.textContent = 'PIN must be exactly 4 digits.';
+      return;
+    }
+    if(users.some(u=>u.pin === pin)){
+      err.textContent = 'That PIN is already in use. Choose a different one.';
+      return;
+    }
+
     const newUser = {id:'u'+Date.now(), firstName, lastName, phone, email, role, site, pin};
-    users.push(newUser);
-    saveUser(newUser);
-    logActivity('user_changed', site, `Created account ${firstName} ${lastName} (${roleLabel(role)})`);
-    renderUsersTable();
-    document.getElementById('newUserLastName').value = '';
-    document.getElementById('newUserFirstName').value = '';
-    document.getElementById('newUserPhone').value = '';
-    document.getElementById('newUserEmail').value = '';
-    document.getElementById('newUserPin').value = '';
+    saveUser(newUser)
+      .then(()=>{
+        users.push(newUser);
+        logActivity('user_changed', site, `Created account ${firstName} ${lastName} (${roleLabel(role)})`);
+        showToast(`${firstName} ${lastName} added as ${roleLabel(role)}`, false);
+        renderAll();
+      })
+      .catch(e=>{
+        console.error('saveUser failed', e);
+        err.textContent = 'Could not save: ' + (e.message || 'database error');
+      });
   };
 }
 
