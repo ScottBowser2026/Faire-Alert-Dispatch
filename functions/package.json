@@ -1,0 +1,12 @@
+{
+  "name": "faire-alert-dispatch-functions",
+  "description": "Cloud Functions for the Faire Alert Dispatch system",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.1.0",
+    "firebase-functions": "^5.0.1",
+    "twilio": "^5.0.4"
+  },
+  "private": true
+}
