@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PARF Alert Dispatch</title>
+<style>
+  :root{
+    --bg:#181a1d;
+    --panel:#212428;
+    --panel-2:#282c31;
+    --line:#34383e;
+    --text:#eceeef;
+    --muted:#8b9099;
+    --gate:#3fa7a0;
+    --weather:#e8a33d;
+    --safety:#d1453b;
+    --clear:#4caf7d;
+    --super:#e8c34d;
+    --mono: 'IBM Plex Mono','SF Mono',Consolas,monospace;
+    --sans: 'Inter','Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); -webkit-font-smoothing:antialiased;
+  }
+  .app{display:flex; min-height:100vh;}
+  .sidebar{
+    width:270px; flex-shrink:0; background:var(--panel);
+    border-right:1px solid var(--line); padding:24px 20px;
+  }
+  .brand{
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:4px;
+  }
+  .brand-title{font-size:19px; font-weight:700; margin-bottom:20px; letter-spacing:-0.01em;}
+  .section-label{
+    font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:10px; margin-top:24px;
+  }
+  .recip-list{display:flex; flex-direction:column; gap:8px;}
+  .recip-item{
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel-2); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .recip-item.on{border-color:var(--gate); background:#20302e;}
+  .recip-item input{accent-color:var(--gate); width:16px; height:16px;}
+  .recip-name{font-weight:600; font-size:14px;}
+  .recip-count{color:var(--muted); font-size:12px; margin-left:auto;}
+  .all-btn{
+    margin-top:12px; width:100%; padding:8px; border-radius:8px;
+    border:1px dashed var(--line); background:transparent; color:var(--muted);
+    font-size:12px; cursor:pointer; font-family:var(--sans);
+  }
+  .all-btn:hover{color:var(--text); border-color:var(--muted);}
+
+  .view-locked{
+    font-size:11px; color:var(--muted); padding:8px 12px; background:var(--panel-2);
+    border:1px solid var(--line); border-radius:8px; margin-top:6px;
+  }
+
+  .nav-row{display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;}
+  .nav-btn{
+    font-size:12.5px; font-weight:700; padding:7px 14px; border-radius:100px;
+    border:1px solid var(--line); background:var(--panel); color:var(--muted); cursor:pointer;
+    font-family:var(--sans);
+  }
+  .nav-btn.active{background:var(--panel-2); color:var(--text); border-color:var(--muted);}
+
+  .locked-note{
+    grid-column:1/-1; background:var(--panel); border:1px dashed var(--line); border-radius:10px;
+    padding:22px; text-align:center; color:var(--muted); font-size:13px;
+  }
+
+  .admin-section{margin-bottom:32px;}
+  .admin-section h3{font-size:14px; margin:0 0 12px;}
+  .role-group{border:1px solid var(--line); border-radius:10px; padding:16px 18px; background:rgba(255,255,255,0.012);}
+  .role-group h3{display:flex; align-items:center; gap:2px; margin-bottom:14px;}
+  .superuser-group{border-left:3px solid var(--super);}
+  .staff-group{border-left:3px solid var(--gate);}
+  .group-note{font-size:11px; font-weight:400; color:var(--muted); margin-left:10px; letter-spacing:0;}
+  table.data-table{width:100%; border-collapse:collapse; font-size:13px;}
+  table.data-table th{
+    text-align:left; color:var(--muted); font-size:10.5px; text-transform:uppercase;
+    letter-spacing:.06em; font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line);
+  }
+  table.data-table td{padding:9px 10px; border-bottom:1px solid var(--line);}
+  tr.editing-row td{background:#2a2f1f; border-top:1px solid var(--super); border-bottom:1px solid var(--super);}
+  tr.editing-row select:not(:disabled), tr.editing-row input:not(:disabled){border-color:var(--super); box-shadow:0 0 0 1px var(--super);}
+  .role-select, .site-select{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:6px;
+    padding:4px 8px; font-size:12px; font-family:var(--sans);
+  }
+  .remove-link{color:var(--safety); background:none; border:none; font-size:12px; cursor:pointer; font-weight:600; font-family:var(--sans);}
+  .edit-link{color:var(--gate); background:none; border:none; font-size:12px; cursor:pointer; font-weight:600; font-family:var(--sans);}
+  .reset-pin-link{color:var(--weather); background:none; border:none; font-size:12px; cursor:pointer; font-weight:600; font-family:var(--sans);}
+  .add-user-row{display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;}
+  .add-user-row input{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px;
+    padding:7px 10px; font-size:13px; font-family:var(--sans); flex:1; min-width:90px;
+  }
+  .add-user-row select{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px;
+    padding:7px 10px; font-size:13px; font-family:var(--sans);
+  }
+  .add-btn{
+    background:var(--gate); color:#0d1a19; border:none; border-radius:6px; padding:7px 14px;
+    font-weight:700; font-size:12.5px; cursor:pointer; font-family:var(--sans);
+  }
+
+  .login-screen{
+    position:fixed; inset:0; background:var(--bg); display:flex; align-items:center;
+    justify-content:center; z-index:100; flex-direction:column; gap:22px;
+  }
+  .login-card{
+    width:300px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:28px 26px; text-align:center;
+  }
+  .login-brand{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:4px;}
+  .login-title{font-size:18px; font-weight:700; margin-bottom:20px;}
+  .pin-dots{display:flex; justify-content:center; gap:12px; margin-bottom:20px;}
+  .pin-dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--line); background:transparent; transition:background .1s, border-color .1s;}
+  .pin-dot.filled{background:var(--gate); border-color:var(--gate);}
+  .pin-dot.err{background:var(--safety); border-color:var(--safety);}
+  .keypad{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .key{
+    padding:14px 0; border-radius:10px; border:1px solid var(--line); background:var(--panel-2);
+    color:var(--text); font-size:17px; font-weight:600; cursor:pointer; font-family:var(--sans);
+  }
+  .key:hover{border-color:var(--muted);}
+  .key.wide{grid-column:span 1; font-size:12px; color:var(--muted); font-weight:700;}
+  .login-error{font-size:12px; color:var(--safety); min-height:16px; margin-top:2px;}
+  .forgot-pin-link{
+    margin-top:14px; background:none; border:none; color:var(--gate); font-size:12px;
+    font-weight:600; cursor:pointer; font-family:var(--sans);
+  }
+  .forgot-pin-panel{margin-top:12px; text-align:left;}
+  .forgot-pin-input{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-size:13px; font-family:var(--sans); margin-top:6px;
+  }
+
+  .signed-in-box{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between;
+    gap:8px;
+  }
+  .signed-in-info{font-size:12.5px;}
+  .signed-in-info .who{font-weight:700; display:block;}
+  .signed-in-info .role{color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em;}
+  .switch-user-btn{
+    font-size:11px; color:var(--gate); background:none; border:none; cursor:pointer; font-weight:700;
+    font-family:var(--sans); white-space:nowrap;
+  }
+  .pin-cell{font-family:var(--mono); font-size:12px; color:var(--muted);}
+
+  .role-icon{display:inline-flex; vertical-align:middle; margin-right:5px; flex-shrink:0;}
+  .role-icon.admin{color:var(--gate);}
+  .role-icon.user{color:var(--muted);}
+  .role-icon.superadmin{color:var(--super);}
+  .role-badge{display:inline-flex; align-items:center;}
+  .nav-btn .role-icon{margin-right:6px;}
+
+  .site-box{margin-bottom:18px;}
+  .site-box .rb-label{font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px;}
+  .site-select-full{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-size:13px; font-family:var(--sans); font-weight:700;
+  }
+  .site-chip{
+    display:inline-block; background:var(--panel-2); border:1px solid var(--line); border-radius:100px;
+    padding:4px 12px; font-size:12.5px; font-weight:700;
+  }
+
+  .recip-block{display:flex; flex-direction:column; gap:4px;}
+  .recip-import{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 2px; margin-top:2px; margin-bottom:2px;
+  }
+  .import-link{
+    font-size:11px; color:var(--gate); background:none; border:none; cursor:pointer;
+    font-family:var(--sans); font-weight:600; padding:0;
+  }
+  .import-link:hover{text-decoration:underline;}
+  .import-note{font-size:10.5px; color:var(--muted);}
+  .import-error{font-size:10.5px; color:var(--safety); margin-top:2px;}
+  .import-picker{display:flex; gap:6px; margin-bottom:6px;}
+  .import-target-select{
+    flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 8px; font-size:12px; font-family:var(--sans);
+  }
+  .import-choose-btn{
+    background:var(--gate); color:#0d1a19; border:none; border-radius:6px; padding:6px 12px;
+    font-weight:700; font-size:12px; cursor:pointer; font-family:var(--sans); white-space:nowrap;
+  }
+  .import-picker-note{font-size:10.5px; color:var(--muted); margin-bottom:6px;}
+
+  .main{flex:1; padding:32px 40px; max-width:960px;}
+  h1{font-size:22px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:14px; margin-bottom:28px;}
+
+  .tabs{display:flex; gap:8px; margin-bottom:20px; border-bottom:1px solid var(--line);}
+  .tab{
+    padding:10px 4px; margin-right:20px; font-size:13px; font-weight:600;
+    color:var(--muted); border-bottom:2px solid transparent; cursor:pointer;
+    display:flex; align-items:center; gap:7px;
+  }
+  .tab.active{color:var(--text);}
+  .dot{width:8px; height:8px; border-radius:50%;}
+  .tab[data-cat="gate"].active{border-color:var(--gate);}
+  .tab[data-cat="weather"].active{border-color:var(--weather);}
+  .tab[data-cat="safety"].active{border-color:var(--safety);}
+  .tab[data-cat="test"].active{border-color:var(--muted);}
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .subgroup{grid-column:1 / -1; display:flex; flex-direction:column; gap:12px;}
+  .subgroup-label{
+    font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); margin:4px 0 -2px;
+  }
+  .subgroup-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .alert-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px; cursor:pointer; text-align:left; color:var(--text);
+    font-family:var(--sans); transition:transform .1s, border-color .15s;
+  }
+  .alert-card:hover{transform:translateY(-1px); border-color:var(--accent);}
+  .alert-card .name{font-weight:700; font-size:14.5px; margin-bottom:6px;}
+  .alert-card .preview{color:var(--muted); font-size:12.5px; font-family:var(--mono); line-height:1.5;}
+  .badge{
+    display:inline-block; font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+    padding:2px 7px; border-radius:100px; margin-bottom:8px; font-weight:700;
+  }
+  [data-cat-card="gate"] .badge{background:#173634; color:var(--gate);}
+  [data-cat-card="weather"] .badge{background:#3a2c14; color:var(--weather);}
+  [data-cat-card="safety"] .badge{background:#3a1a17; color:var(--safety);}
+  [data-cat-card="test"] .badge{background:#2a2c30; color:var(--muted);}
+  [data-cat-card="gate"]{--accent:var(--gate);}
+  [data-cat-card="weather"]{--accent:var(--weather);}
+  [data-cat-card="safety"]{--accent:var(--safety);}
+  [data-cat-card="test"]{--accent:var(--muted);}
+  .safety-critical{border-color:#5c2521 !important; background:#241413;}
+
+  /* Overlay + modal */
+  .overlay{
+    position:fixed; inset:0; background:rgba(10,10,11,.72);
+    display:none; align-items:center; justify-content:center; z-index:50;
+    backdrop-filter:blur(2px);
+  }
+  .overlay.show{display:flex;}
+  .modal{
+    width:440px; max-width:92vw; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal.danger{border-color:#5c2521;}
+  .modal-eyebrow{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;}
+  .modal.danger .modal-eyebrow{color:var(--safety);}
+  .modal h2{font-size:17px; margin:0 0 14px;}
+  .to-row{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
+  .to-pill{
+    font-size:11.5px; font-weight:700; background:var(--panel-2); border:1px solid var(--line);
+    padding:3px 10px; border-radius:100px; color:var(--text);
+  }
+  .msg-box{
+    background:#101214; border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+    font-family:var(--mono); font-size:13px; line-height:1.55; white-space:pre-wrap;
+    margin-bottom:8px; min-height:60px;
+  }
+  .char-count{color:var(--muted); font-size:11px; text-align:right; margin-bottom:16px;}
+  .time-row{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+  .time-row label{font-size:11.5px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.06em;}
+  .time-row input[type="time"]{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px;
+    padding:6px 10px; font-size:13px; font-family:var(--sans);
+  }
+  .modal-actions{display:flex; gap:10px; justify-content:flex-end;}
+  .btn{
+    font-family:var(--sans); font-size:13.5px; font-weight:600; padding:9px 16px;
+    border-radius:8px; border:1px solid var(--line); background:var(--panel-2); color:var(--text);
+    cursor:pointer;
+  }
+  .btn.cancel:hover{border-color:var(--muted);}
+  .btn.primary{background:var(--gate); border-color:var(--gate); color:#0d1a19;}
+  .btn.primary.danger{background:var(--safety); border-color:var(--safety); color:#fff;}
+  .warn-box{
+    background:#241413; border:1px solid #5c2521; border-radius:8px; padding:10px 12px;
+    font-size:12.5px; color:#f0b8b3; margin-bottom:16px; line-height:1.5;
+  }
+  .step-track{display:flex; gap:4px; margin-bottom:14px;}
+  .step-track div{height:3px; flex:1; background:var(--line); border-radius:2px;}
+  .step-track div.done{background:var(--safety);}
+
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--panel); border:1px solid var(--clear); color:var(--text);
+    padding:12px 20px; border-radius:10px; font-size:13.5px; font-weight:600;
+    display:none; align-items:center; gap:8px; z-index:60;
+  }
+  .toast.show{display:flex;}
+  .toast.danger-toast{border-color:var(--safety);}
+</style>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<div class="login-screen" id="loginScreen">
+  <div class="login-card" id="pinCard">
+    <div class="login-brand">Faire Operations</div>
+    <div class="login-title">Enter your PIN</div>
+    <div class="pin-dots" id="pinDots"></div>
+    <div class="keypad" id="keypad"></div>
+    <div class="login-error" id="loginError"></div>
+    <button class="forgot-pin-link" id="forgotPinLink">Forgot PIN?</button>
+    <div class="forgot-pin-panel" id="forgotPinPanel" style="display:none;">
+      <div class="rb-label" style="text-align:left;">Verify your identity</div>
+      <input type="text" id="forgotPinPhone" class="forgot-pin-input" placeholder="Phone number" />
+      <input type="text" id="forgotPinLastName" class="forgot-pin-input" placeholder="Last name" />
+      <button class="add-btn" id="forgotPinSendBtn" style="width:100%; margin-top:8px;">Send new PIN</button>
+      <div class="login-error" id="forgotPinMessage"></div>
+    </div>
+  </div>
+
+  <div class="login-card" id="verifyCard" style="display:none;">
+    <div class="login-brand">Faire Operations</div>
+    <div class="login-title">Verify it's you</div>
+    <div class="rb-label" id="verifySentTo" style="text-align:left; margin-bottom:10px;"></div>
+    <input type="text" id="verifyCodeInput" class="forgot-pin-input" placeholder="6-digit code" maxlength="6" style="text-align:center; letter-spacing:4px; font-family:var(--mono); font-size:16px;" />
+    <button class="add-btn" id="verifyCodeBtn" style="width:100%; margin-top:10px;">Verify & Log In</button>
+    <div class="login-error" id="verifyError"></div>
+    <div class="import-picker-note" id="verifyDemoNote" style="margin-top:10px;"></div>
+    <button class="forgot-pin-link" id="verifyBackBtn" style="margin-top:8px;">Back to PIN</button>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
+
+  <div class="sidebar">
+    <div class="brand">Faire Operations</div>
+    <div class="brand-title">Alert Dispatch</div>
+
+    <div class="signed-in-box" id="signedInBox"></div>
+    <div class="site-box" id="siteBox"></div>
+
+    <div id="sidebarRecipients"></div>
+  </div>
+
+  <div class="main">
+    <div class="nav-row" id="navRow"></div>
+    <div id="viewRoot"></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal">
+    <div class="modal-eyebrow" id="modalEyebrow">Confirm send</div>
+    <h2 id="modalTitle">Alert name</h2>
+    <div class="to-row" id="toRow"></div>
+    <div id="warnSlot"></div>
+    <div class="step-track" id="stepTrack" style="display:none;">
+      <div id="s1"></div><div id="s2"></div>
+    </div>
+    <div id="timeSlot"></div>
+    <div id="authSlot"></div>
+    <div class="time-row">
+      <label for="confirmPinInput">Your PIN</label>
+      <input type="password" id="confirmPinInput" maxlength="4" inputmode="numeric" placeholder="****" style="width:80px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 10px; font-size:13px; font-family:var(--mono); letter-spacing:3px;" />
+    </div>
+    <div class="login-error" id="pinConfirmError"></div>
+    <div class="msg-box" id="msgBox" contenteditable="true"></div>
+    <div class="char-count" id="charCount">0 characters</div>
+    <div class="modal-actions">
+      <button class="btn cancel" id="cancelBtn">Cancel</button>
+      <button class="btn primary" id="confirmBtn">Send now</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Sent.</div>
+
+<script>
+const ICON_ADMIN = '<svg class="role-icon admin" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L4 5 V11 C4 16.5 7.5 20.5 12 22 C16.5 20.5 20 16.5 20 11 V5 Z"/><path d="M8.5 12 L11 14.5 L15.5 9.5"/></svg>';
+const ICON_USER = '<svg class="role-icon user" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20 C4.5 15 7.8 13 12 13 C16.2 13 19.5 15 19.5 20"/></svg>';
+const ICON_SUPERADMIN = '<svg class="role-icon superadmin" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none"><path d="M12 1.5 L14.6 8.4 L21.8 8.9 L16 13.6 L18 20.7 L12 16.5 L6 20.7 L8 13.6 L2.2 8.9 L9.4 8.4 Z"/></svg>';
+function roleIcon(role){ if(role==='superadmin') return ICON_SUPERADMIN; if(role==='admin') return ICON_ADMIN; return ICON_USER; }
+function roleLabel(role){ if(role==='superadmin') return 'Superuser'; if(role==='admin') return 'Operations Manager'; return 'User'; }
+
+// ---------------- Firebase ----------------
+const firebaseConfig = {
+  apiKey: "AIzaSyAQrAWn29o64MJzrpZ8-7yCDHJQNRVHzpU",
+  authDomain: "faire-food-qc.firebaseapp.com",
+  databaseURL: "https://faire-alert-system.firebaseio.com",
+  projectId: "faire-food-qc",
+  storageBucket: "faire-food-qc.firebasestorage.app",
+  messagingSenderId: "872552099867",
+  appId: "1:872552099867:web:29a72c41c4df0c1cbcc8be"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const SITE_CODES = ['PARF','SRF','KRF','GARF'];
+
+let sites = [];
+
+let activityLog = [];
+
+const EVENT_TYPES = {
+  alert_sent:   {label:'Alert sent',      color:'var(--safety)'},
+  drill_sent:   {label:'Drill / test',    color:'var(--muted)'},
+  login:        {label:'Login',           color:'var(--gate)'},
+  list_changed: {label:'Recipient list',  color:'var(--weather)'},
+  user_changed: {label:'Account change',  color:'var(--super)'},
+  optout:       {label:'Opt-out',         color:'var(--muted)'},
+};
+
+let reportSettings = {
+  recipients: [],
+  cadence: 'weekly',
+  include: {alert_sent:true, drill_sent:true, login:false, list_changed:true, user_changed:true, optout:true},
+};
+
+function logActivity(type, site, detail, meta){
+  const entry = {
+    ts: Date.now(),
+    type,
+    site: site || '\u2014',
+    actor: loggedInUser ? fullName(loggedInUser) : 'system',
+    detail,
+    meta: meta || null,
+  };
+  activityLog.unshift(entry);
+  if(activityLog.length > 500) activityLog.length = 500;
+  try { db.ref('activityLog').push(entry); } catch(e){ console.warn('log write failed', e); }
+}
+
+function siteStatus(code){
+  const s = sites.find(x=>x.code===code);
+  return s ? (s.status || 'pending') : 'pending';
+}
+function isSiteLive(code){ return siteStatus(code) === 'live'; }
+
+function freshRecipients(){
+  return [
+    {id:'managers', name:'Managers', members:[], lastReviewed:null, reviewedBy:null},
+    {id:'vendors-permanent', name:'Vendors \u2014 Permanent', members:[], lastReviewed:null, reviewedBy:null},
+    {id:'vendors-guest', name:'Vendors \u2014 Guest', members:[], lastReviewed:null, reviewedBy:null},
+    {id:'performers', name:'Performers', members:[], lastReviewed:null, reviewedBy:null},
+  ];
+}
+
+let recipientsBySite = {};
+let optOutBySite = {};
+
+const categories = [
+  {id:'gate', label:'Gate Status'},
+  {id:'weather', label:'Weather'},
+  {id:'safety', label:'Safety Alert'},
+  {id:'test', label:'Test'},
+];
+
+const alerts = [
+  {cat:'gate', group:'opening', name:'All Clear - Opening', text:'All clear as of {time}. Faire grounds are now closed to vehicle traffic.'},
+  {cat:'gate', group:'opening', name:'Opening Early', text:'Gates are opening early today at {time}. Please be in position and ready ahead of that time.'},
+  {cat:'gate', group:'opening', name:'Gate Delayed', text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
+  {cat:'gate', group:'closing', name:'Closing Early', text:'Gates are closing early today at {time}. Please begin closing procedures ahead of that time.'},
+  {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
+  {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
+  {cat:'weather', group:'event', name:'Weather - Delay', text:'Weather delay in effect until {time}. Hold your current position and await further instructions.'},
+  {cat:'weather', group:'event', name:'Weather Alert - Seek Shelter', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
+  {cat:'weather', group:'event', name:'Weather Cancellation', text:"As of {time}, today's event is cancelled due to weather. Stand down and await further instructions."},
+  {cat:'weather', group:'event', name:'Return to Operations', text:'Weather is clear as of {time}. Return to normal operations. Performances will resume at {resume}.'},
+  {cat:'weather', group:'nonshow', name:'Office Delayed Opening', text:'Office opening is delayed due to weather. New opening time: {time}.'},
+  {cat:'weather', group:'nonshow', name:'Office Closed (Weather)', text:'As of {time}, the office is closed today due to weather.'},
+  {cat:'weather', group:'nonshow', name:'Seek Shelter (Office Day)', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
+  {cat:'weather', group:'nonshow', name:'Office Reopens / Return to Normal', text:'Weather is clear as of {time}. The office has reopened. Normal operations resume.'},
+  {cat:'safety', group:'emergency', name:'Emergency - Water', text:'Emergency: Water incident reported on site. Wait for further instructions.', critical:false},
+  {cat:'safety', group:'emergency', name:'Emergency - Fire', text:'Emergency: Fire reported on site. Wait for further instructions.', critical:false},
+  {cat:'safety', group:'emergency', name:'Active Shooter', text:'ACTIVE SHOOTER on site. RUN, HIDE, FIGHT. Call 911 immediately. This is not a drill.', critical:true},
+  {cat:'safety', group:'cleared', name:'All Clear - Water Emergency', text:'All clear as of {time}. The water emergency has been resolved. Normal operations may resume.', critical:false},
+  {cat:'safety', group:'cleared', name:'All Clear - Fire Emergency', text:'All clear as of {time}. The fire emergency has been resolved. Normal operations may resume.', critical:false},
+  {cat:'safety', group:'cleared', name:'All Clear - Active Shooter', text:'All clear as of {time}. The active shooter situation has been resolved. It is now safe to resume normal operations.', critical:false},
+  {cat:'test', name:'System Test', text:'This is a test of the Faire Operations Alert system sent at {time}. No action is needed.'},
+  {cat:'test', name:'Test - Reply Requested', text:'This is a test of the Faire Operations Alert system sent at {time}. Please reply OK to confirm you received this message.'},
+  {cat:'test', name:'Active Shooter Drill (Test)', text:'THIS IS A DRILL \u2014 NOT A REAL EMERGENCY. Active Shooter test alert sent at {time}. This is only a test of the Faire Operations Alert system and its response procedures.', critical:true},
+];
+
+const groupLabels = {opening:'Opening', closing:'Closing', emergency:'Emergency', cleared:'All Clear', event:'Event', nonshow:'Non-Show'};
+
+let selected = new Set();
+let activeCat = 'gate';
+let pendingAlert = null;
+let confirmStep = 1;
+let authCode = '';
+let authApprovers = [];
+let currentRole = null;
+let currentView = 'send'; // 'send' | 'admin-panel' | 'sites'
+let loggedInUser = null;
+let pinEntry = '';
+let activeSite = null;
+
+function fullName(u){ return `${u.firstName} ${u.lastName}`.trim(); }
+
+let users = [];
+
+// ---------------- Data layer ----------------
+function objToArr(obj, idKey){
+  if(!obj) return [];
+  return Object.keys(obj).map(k=>{
+    const v = obj[k] || {};
+    return Object.assign({}, v, {[idKey || 'id']: k});
+  });
+}
+
+function defaultLists(){
+  return [
+    {id:'managers', name:'Managers'},
+    {id:'vendors-permanent', name:'Vendors \u2014 Permanent'},
+    {id:'vendors-guest', name:'Vendors \u2014 Guest'},
+    {id:'performers', name:'Performers'},
+  ];
+}
+
+async function loadAll(){
+  const snap = await db.ref('/').once('value');
+  const d = snap.val() || {};
+
+  users = objToArr(d.users, 'id');
+
+  sites = SITE_CODES.map(code=>{
+    const meta = (d.sites && d.sites[code] && d.sites[code].meta) || {};
+    return {
+      code,
+      name: meta.name || code,
+      tollFree: meta.tollFree || '',
+      status: meta.status || 'pending',
+    };
+  });
+
+  recipientsBySite = {};
+  optOutBySite = {};
+  SITE_CODES.forEach(code=>{
+    const siteNode = (d.sites && d.sites[code]) || {};
+    const recNode = siteNode.recipients || {};
+    recipientsBySite[code] = defaultLists().map(def=>{
+      const r = recNode[def.id] || {};
+      return {
+        id: def.id,
+        name: r.name || def.name,
+        members: objToArr(r.members, 'mid'),
+        lastReviewed: r.lastReviewed || null,
+        reviewedBy: r.reviewedBy || null,
+        fileName: r.fileName || null,
+        importError: '',
+      };
+    });
+    optOutBySite[code] = objToArr(siteNode.optOuts, 'oid');
+  });
+
+  activityLog = objToArr(d.activityLog, 'lid').sort((a,b)=> (b.ts||0) - (a.ts||0));
+
+  const rs = d.reportSettings || {};
+  reportSettings = {
+    recipients: rs.recipients ? Object.values(rs.recipients) : [],
+    cadence: rs.cadence || 'weekly',
+    include: Object.assign(
+      {alert_sent:true, drill_sent:true, login:false, list_changed:true, user_changed:true, optout:true},
+      rs.include || {}
+    ),
+  };
+}
+
+function saveUser(u){
+  const {id, ...rest} = u;
+  return db.ref('users/' + id).set(rest);
+}
+function deleteUser(id){ return db.ref('users/' + id).remove(); }
+
+function saveSiteMeta(s){
+  return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status});
+}
+
+function saveList(site, r){
+  const members = {};
+  r.members.forEach((m, i)=>{
+    const key = m.mid || ('m' + Date.now() + '_' + i);
+    members[key] = {name: m.name, phone: m.phone};
+  });
+  return db.ref(`sites/${site}/recipients/${r.id}`).set({
+    name: r.name,
+    lastReviewed: r.lastReviewed || null,
+    reviewedBy: r.reviewedBy || null,
+    fileName: r.fileName || null,
+    members,
+  });
+}
+
+function saveOptOuts(site){
+  const obj = {};
+  (optOutBySite[site] || []).forEach((o, i)=>{
+    const key = o.oid || ('o' + Date.now() + '_' + i);
+    obj[key] = {name:o.name, phone:o.phone, date:o.date};
+  });
+  return db.ref(`sites/${site}/optOuts`).set(obj);
+}
+
+function saveReportSettings(){
+  const rec = {};
+  reportSettings.recipients.forEach((e,i)=>{ rec['r'+i] = e; });
+  return db.ref('reportSettings').set({
+    recipients: rec,
+    cadence: reportSettings.cadence,
+    include: reportSettings.include,
+  });
+}
+
+function canSend(){ return currentRole === 'admin' || currentRole === 'superadmin'; }
+function canManageSite(){ return currentRole === 'admin' || currentRole === 'superadmin'; }
+function isSuperadmin(){ return currentRole === 'superadmin'; }
+
+function renderPinDots(){
+  const dots = document.getElementById('pinDots');
+  dots.innerHTML = '';
+  for(let i=0;i<4;i++){
+    const d = document.createElement('div');
+    d.className = 'pin-dot' + (i < pinEntry.length ? ' filled':'');
+    dots.appendChild(d);
+  }
+}
+
+function renderKeypad(){
+  const keypad = document.getElementById('keypad');
+  keypad.innerHTML = '';
+  ['1','2','3','4','5','6','7','8','9'].forEach(n=>{
+    const b = document.createElement('button');
+    b.className = 'key';
+    b.textContent = n;
+    b.onclick = ()=> pressDigit(n);
+    keypad.appendChild(b);
+  });
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'key wide';
+  clearBtn.textContent = 'Clear';
+  clearBtn.onclick = ()=>{ pinEntry=''; document.getElementById('loginError').textContent=''; renderPinDots(); };
+  keypad.appendChild(clearBtn);
+
+  const zeroBtn = document.createElement('button');
+  zeroBtn.className = 'key';
+  zeroBtn.textContent = '0';
+  zeroBtn.onclick = ()=> pressDigit('0');
+  keypad.appendChild(zeroBtn);
+
+  const backBtn = document.createElement('button');
+  backBtn.className = 'key wide';
+  backBtn.textContent = '⌫';
+  backBtn.onclick = ()=>{ pinEntry = pinEntry.slice(0,-1); document.getElementById('loginError').textContent=''; renderPinDots(); };
+  keypad.appendChild(backBtn);
+}
+
+function pressDigit(n){
+  if(pinEntry.length >= 4) return;
+  pinEntry += n;
+  document.getElementById('loginError').textContent = '';
+  renderPinDots();
+  if(pinEntry.length === 4){
+    setTimeout(attemptLogin, 120);
+  }
+}
+
+let pendingVerifyUser = null;
+let verifyCode = '';
+
+function notifyAdminsOfLogin(user, site){
+  const superadmins = users.filter(u => u.role === 'superadmin');
+  const when = new Date().toLocaleString();
+  const siteLabel = site === 'ALL' ? 'the system (Superuser)' : `${site} \u2014 ${siteName(site)}`;
+  const message = `Login alert: ${fullName(user)} (${roleLabel(user.role)}) logged into ${siteLabel} at ${when}.`;
+  console.log('[Login notification]', message, '-> would text:', superadmins.map(s=>s.phone).join(', '));
+  return {message, recipients: superadmins};
+}
+
+function maskPhone(phone){
+  const digits = phone.replace(/[^\d]/g,'');
+  return digits.length >= 4 ? `ending in ${digits.slice(-4)}` : phone;
+}
+
+function attemptLogin(){
+  const match = users.find(u=>u.pin === pinEntry);
+  pinEntry = '';
+  if(match){
+    pendingVerifyUser = match;
+    verifyCode = String(Math.floor(100000 + Math.random()*900000));
+    console.log(`[SMS verification] Would text code ${verifyCode} to ${match.phone} (${fullName(match)})`);
+    document.getElementById('pinCard').style.display = 'none';
+    document.getElementById('verifyCard').style.display = 'block';
+    document.getElementById('verifySentTo').textContent = `We sent a 6-digit code to ${fullName(match)}'s phone, ${maskPhone(match.phone)}.`;
+    document.getElementById('verifyCodeInput').value = '';
+    document.getElementById('verifyError').textContent = '';
+    document.getElementById('verifyDemoNote').textContent = `Demo mode (no SMS backend yet) \u2014 your code is ${verifyCode}`;
+  } else {
+    document.getElementById('loginError').textContent = 'PIN not recognized. Try again.';
+    renderPinDots();
+  }
+}
+
+function completeLogin(){
+  const match = pendingVerifyUser;
+  loggedInUser = match;
+  currentRole = match.role;
+  currentView = 'send';
+  activeSite = match.role === 'superadmin' ? SITE_CODES[0] : match.site;
+  selected = new Set();
+  const notification = notifyAdminsOfLogin(match, match.site);
+  logActivity('login', match.site, `${fullName(match)} (${roleLabel(match.role)}) signed in`);
+  pendingVerifyUser = null;
+  verifyCode = '';
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'flex';
+  renderAll();
+  if(notification.recipients.length){
+    showToast(`Superusers notified of this login (${notification.recipients.length})`, false);
+  }
+}
+
+function backToPinStage(){
+  pendingVerifyUser = null;
+  verifyCode = '';
+  document.getElementById('verifyCard').style.display = 'none';
+  document.getElementById('pinCard').style.display = 'block';
+  pinEntry = '';
+  renderPinDots();
+}
+
+function logOut(){
+  loggedInUser = null;
+  currentRole = null;
+  activeSite = null;
+  pinEntry = '';
+  document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginError').textContent = '';
+  renderPinDots();
+}
+
+function renderSignedInBox(){
+  const box = document.getElementById('signedInBox');
+  if(!loggedInUser) return;
+  box.innerHTML = `
+    <div class="signed-in-info">
+      <span class="who">${fullName(loggedInUser)}</span>
+      <span class="role role-badge">${roleIcon(loggedInUser.role)}${roleLabel(loggedInUser.role)}</span>
+    </div>
+    <button class="switch-user-btn" id="switchUserBtn">Log out</button>
+  `;
+  document.getElementById('switchUserBtn').onclick = logOut;
+}
+
+function siteName(code){
+  const s = sites.find(x=>x.code===code);
+  return s ? s.name : code;
+}
+
+function renderSiteBox(){
+  const box = document.getElementById('siteBox');
+  if(isSuperadmin()){
+    box.innerHTML = `
+      <div class="rb-label">Viewing site</div>
+      <select class="site-select-full" id="siteSwitch">
+        ${SITE_CODES.map(c=>`<option value="${c}" ${c===activeSite?'selected':''}>${c} \u2014 ${siteName(c)}${isSiteLive(c) ? '' : ' (pending)'}</option>`).join('')}
+      </select>
+    `;
+    document.getElementById('siteSwitch').onchange = (e)=>{
+      activeSite = e.target.value;
+      selected = new Set();
+      renderAll();
+    };
+  } else {
+    box.innerHTML = `
+      <div class="rb-label">Site</div>
+      <span class="site-chip">${activeSite} \u2014 ${siteName(activeSite)}</span>
+    `;
+  }
+}
+
+function renderNav(){
+  const nav = document.getElementById('navRow');
+  const items = [{id:'send', label:'Send Alert'}];
+  if(currentRole === 'admin' || currentRole === 'superadmin'){ items.push({id:'recipients', label:'Recipients'}); }
+  if(currentRole === 'admin' || currentRole === 'superadmin'){ items.push({id:'admin-panel', label:'Admin Panel', icon:ICON_ADMIN}); }
+  if(currentRole === 'admin' || currentRole === 'superadmin'){ items.push({id:'optouts', label:'Opt-Outs'}); }
+  if(currentRole === 'admin' || currentRole === 'superadmin'){ items.push({id:'reports', label:'Reports'}); }
+  if(currentRole === 'superadmin'){ items.push({id:'sites', label:'Sites', icon:ICON_SUPERADMIN}); }
+  nav.innerHTML = '';
+  items.forEach(it=>{
+    const b = document.createElement('button');
+    b.className = 'nav-btn' + (currentView===it.id ? ' active':'');
+    b.innerHTML = (it.icon || '') + it.label;
+    b.onclick = ()=>{ currentView = it.id; renderAll(); };
+    nav.appendChild(b);
+  });
+}
+
+function renderSidebar(){
+  const root = document.getElementById('sidebarRecipients');
+  const canManage = canManageSite();
+  const recipients = recipientsBySite[activeSite];
+  root.innerHTML = `
+    <div class="section-label">Send to</div>
+    <div class="recip-list" id="recipList"></div>
+    ${canManage ? '<button class="all-btn" id="allBtn">Select all lists</button>' : '<div class="view-locked">View only \u2014 Admins manage recipient lists and send alerts.</div>'}
+    ${canManage ? `
+      <div class="section-label">Import CSV</div>
+      <div class="import-picker">
+        <select class="import-target-select" id="importTargetSelect">
+          ${recipients.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
+        </select>
+        <button class="import-choose-btn" id="importChooseBtn">Choose File</button>
+      </div>
+      <div class="import-picker-note" id="importPickerNote">Pick the list above, then choose the CSV for it.</div>
+    ` : ''}
+  `;
+  renderRecipients();
+  if(canManage){
+    document.getElementById('allBtn').onclick = ()=>{
+      if(selected.size === recipients.length){ selected.clear(); } else { recipients.forEach(r=>selected.add(r.id)); }
+      renderRecipients();
+    };
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.csv,text/csv';
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
+    fileInput.onchange = (e)=>{
+      const targetId = document.getElementById('importTargetSelect').value;
+      handleCsvImport(targetId, e.target.files[0]);
+      fileInput.value = '';
+    };
+    document.getElementById('importChooseBtn').onclick = ()=> fileInput.click();
+  }
+}
+
+function renderRecipients(){
+  const list = document.getElementById('recipList');
+  if(!list) return;
+  const canManage = canManageSite();
+  const recipients = recipientsBySite[activeSite];
+  list.innerHTML = '';
+  recipients.forEach(r=>{
+    const block = document.createElement('div');
+    block.className = 'recip-block';
+
+    const el = document.createElement('div');
+    el.className = 'recip-item' + (selected.has(r.id) ? ' on' : '');
+    el.innerHTML = `<input type="checkbox" ${selected.has(r.id)?'checked':''} ${canManage?'':'disabled'} />
+      <span class="recip-name">${r.name}</span>
+      <span class="recip-count">${r.members.length}</span>`;
+    if(canManage){
+      el.onclick = ()=>{
+        selected.has(r.id) ? selected.delete(r.id) : selected.add(r.id);
+        renderRecipients();
+      };
+    } else {
+      el.style.cursor = 'default';
+      el.style.opacity = '.6';
+    }
+    block.appendChild(el);
+
+    if(canManage){
+      const noteRow = document.createElement('div');
+      noteRow.className = 'recip-import';
+      const lastImport = r.importError
+        ? `<span class="import-error">${r.importError}</span>`
+        : (r.fileName ? `<span class="import-note">${r.fileName} \u00b7 ${r.members.length} loaded</span>` : `<span class="import-note">No list imported</span>`);
+      noteRow.innerHTML = lastImport;
+      block.appendChild(noteRow);
+    }
+
+    list.appendChild(block);
+  });
+}
+
+function parseCsv(text){
+  const rows = [];
+  let cur = '', row = [], inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ cur+='"'; i++; } else { inQuotes = false; }
+      } else { cur += c; }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(cur); cur=''; }
+      else if(c === '\n' || c === '\r'){
+        if(c === '\r' && text[i+1] === '\n') i++;
+        row.push(cur); cur=''; rows.push(row); row=[];
+      } else { cur += c; }
+    }
+  }
+  if(cur.length || row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(cell => cell.trim() !== ''));
+}
+
+function handleCsvImport(id, file){
+  const recipients = recipientsBySite[activeSite];
+  const r = recipients.find(x=>x.id===id);
+  if(!file){ return; }
+  if(!/\.csv$/i.test(file.name)){
+    r.importError = 'Please choose a .csv file.';
+    renderRecipients();
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const rows = parseCsv(String(e.target.result));
+    if(rows.length < 2){
+      r.importError = 'No rows found in that file.';
+      renderRecipients();
+      return;
+    }
+    const header = rows[0].map(h=>h.trim().toLowerCase());
+    const nameIdx = header.findIndex(h=>h.includes('name'));
+    const phoneIdx = header.findIndex(h=>h.includes('phone') || h.includes('mobile') || h.includes('cell'));
+    if(phoneIdx === -1){
+      r.importError = "Couldn't find a phone column. Header should include 'phone'.";
+      renderRecipients();
+      return;
+    }
+    const members = [];
+    const badRows = [];
+    const optedOutRows = [];
+    const optOutDigits = optOutBySite[activeSite].map(o=>o.phone.replace(/[^\d]/g,''));
+    rows.slice(1).forEach((row, i)=>{
+      const phoneRaw = (row[phoneIdx] || '').trim();
+      const digits = phoneRaw.replace(/[^\d]/g,'');
+      const name = nameIdx !== -1 ? (row[nameIdx] || '').trim() : '';
+      if(digits.length < 10){ badRows.push(i+2); return; }
+      if(optOutDigits.includes(digits)){ optedOutRows.push(i+2); return; }
+      members.push({name: name || '(no name)', phone: phoneRaw});
+    });
+    r.members = members;
+    r.fileName = file.name;
+    r.lastReviewed = Date.now();
+    r.reviewedBy = loggedInUser ? fullName(loggedInUser) : null;
+    logActivity('list_changed', activeSite, `Imported ${members.length} into ${r.name} from ${file.name}`);
+    saveList(activeSite, r);
+    const skipNotes = [];
+    if(badRows.length){ skipNotes.push(`${badRows.length} row(s) with no valid phone number`); }
+    if(optedOutRows.length){ skipNotes.push(`${optedOutRows.length} row(s) already opted out`); }
+    r.importError = skipNotes.length
+      ? `Imported ${members.length} \u00b7 skipped ${skipNotes.join(', ')}.`
+      : '';
+    renderRecipients();
+  };
+  reader.onerror = ()=>{
+    r.importError = 'Could not read that file.';
+    renderRecipients();
+  };
+  reader.readAsText(file);
+}
+
+function renderView(){
+  const root = document.getElementById('viewRoot');
+  if(currentView === 'admin-panel'){
+    renderAdminPanelView(root);
+  } else if(currentView === 'sites'){
+    renderSitesView(root);
+  } else if(currentView === 'optouts'){
+    renderOptOutsView(root);
+  } else if(currentView === 'recipients'){
+    renderRecipientsView(root);
+  } else if(currentView === 'reports'){
+    renderReportsView(root);
+  } else {
+    renderSendView(root);
+  }
+}
+
+function renderSendView(root){
+  const live = isSiteLive(activeSite);
+  root.innerHTML = `
+    <h1>Current Conditions Alert</h1>
+    <div class="sub">Sending for <strong>${activeSite} \u2014 ${siteName(activeSite)}</strong>. Pick a category, then the specific alert.</div>
+    ${live ? '' : `<div class="warn-box" style="margin-bottom:20px;"><strong>${activeSite} is not live yet.</strong> This property has no verified toll-free number, so alerts can't be sent. You can still build its recipient lists and manage accounts. Mark it live in the Sites tab once its number is verified.</div>`}
+    <div class="tabs" id="tabs"></div>
+    <div class="grid" id="cardGrid"></div>
+  `;
+  renderTabs();
+  renderCards();
+}
+
+function renderTabs(){
+  const tabs = document.getElementById('tabs');
+  const visibleCategories = categories.filter(c => c.id !== 'test' || isSuperadmin());
+  if(activeCat === 'test' && !isSuperadmin()){ activeCat = 'gate'; }
+  tabs.innerHTML = '';
+  visibleCategories.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'tab' + (c.id===activeCat ? ' active':'');
+    el.dataset.cat = c.id;
+    el.textContent = c.label;
+    el.onclick = ()=>{ activeCat = c.id; renderTabs(); renderCards(); };
+    tabs.appendChild(el);
+  });
+}
+
+function renderCards(){
+  const grid = document.getElementById('cardGrid');
+  grid.innerHTML = '';
+  const sendable = canSend() && isSiteLive(activeSite);
+
+  function makeCard(a){
+    const el = document.createElement('button');
+    el.className = 'alert-card' + (a.critical ? ' safety-critical':'');
+    el.setAttribute('data-cat-card', a.cat);
+    el.innerHTML = `<div class="badge">${categories.find(c=>c.id===a.cat).label}</div>
+      <div class="name">${a.name}</div>
+      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]')}</div>`;
+    if(sendable){
+      el.onclick = ()=> openModal(a);
+    } else {
+      el.disabled = true;
+      el.style.cursor = 'default';
+      el.style.opacity = '.55';
+    }
+    return el;
+  }
+
+  if(!canSend()){
+    const note = document.createElement('div');
+    note.className = 'locked-note';
+    note.textContent = "Your account can view alert types but can't send. Contact an admin to dispatch.";
+    grid.appendChild(note);
+  }
+
+  const catAlerts = alerts.filter(a=>a.cat===activeCat);
+  const groupsInOrder = [];
+  catAlerts.forEach(a=>{ if(a.group && !groupsInOrder.includes(a.group)) groupsInOrder.push(a.group); });
+
+  if(groupsInOrder.length){
+    groupsInOrder.forEach(group=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'subgroup';
+      const label = document.createElement('div');
+      label.className = 'subgroup-label';
+      label.textContent = groupLabels[group] || group;
+      const sub = document.createElement('div');
+      sub.className = 'subgroup-grid';
+      catAlerts.filter(a=>a.group===group).forEach(a=> sub.appendChild(makeCard(a)));
+      wrap.appendChild(label);
+      wrap.appendChild(sub);
+      grid.appendChild(wrap);
+    });
+  } else {
+    catAlerts.forEach(a=> grid.appendChild(makeCard(a)));
+  }
+}
+
+function renderAdminPanelView(root){
+  const superadmin = isSuperadmin();
+  root.innerHTML = `
+    <h1>Admin Panel</h1>
+    <div class="sub">${superadmin ? 'Manage user accounts across all sites.' : `Manage staff accounts for ${activeSite}.`}</div>
+
+    ${superadmin ? `
+    <div class="admin-section role-group superuser-group">
+      <h3><span class="role-badge">${ICON_SUPERADMIN}</span> Superusers <span class="group-note">Full access across all sites</span></h3>
+      <table class="data-table">
+        <thead><tr><th>Last Name</th><th>First Name</th><th>Phone</th><th>Email</th><th>Site</th><th>PIN</th><th>Role</th><th></th></tr></thead>
+        <tbody id="superusersBody"></tbody>
+      </table>
+    </div>
+    ` : ''}
+
+    <div class="admin-section role-group staff-group">
+      <h3><span class="role-badge">${ICON_ADMIN}</span> Staff Accounts <span class="group-note">Operations Managers \u2014 scoped to one site</span></h3>
+      <table class="data-table">
+        <thead><tr><th>Last Name</th><th>First Name</th><th>Phone</th><th>Email</th><th>Site</th><th>PIN</th><th>Role</th><th></th></tr></thead>
+        <tbody id="staffBody"></tbody>
+      </table>
+    </div>
+
+    <div class="admin-section">
+      <h3>Add an account</h3>
+      <div class="add-user-row">
+        <input type="text" id="newUserLastName" placeholder="Last Name" />
+        <input type="text" id="newUserFirstName" placeholder="First Name" />
+        <input type="text" id="newUserPhone" placeholder="Phone" />
+        <input type="text" id="newUserEmail" placeholder="Email" />
+        <input type="text" id="newUserPin" placeholder="4-digit PIN" maxlength="4" style="max-width:110px;" />
+        ${superadmin ? `<select id="newUserSite">${SITE_CODES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>` : ''}
+        <select id="newUserRole">
+          <option value="admin">Operations Manager</option>
+          ${superadmin ? '<option value="superadmin">Superuser</option>' : ''}
+        </select>
+        <button class="add-btn" id="addUserBtn">Add account</button>
+      </div>
+    </div>
+  `;
+  renderUsersTable();
+  document.getElementById('addUserBtn').onclick = ()=>{
+    const lastName = document.getElementById('newUserLastName').value.trim();
+    const firstName = document.getElementById('newUserFirstName').value.trim();
+    const phone = document.getElementById('newUserPhone').value.replace(/[()]/g, '').replace(/\s+/g,' ').trim();
+    const email = document.getElementById('newUserEmail').value.trim();
+    const pin = document.getElementById('newUserPin').value.trim();
+    const role = document.getElementById('newUserRole').value;
+    const site = role === 'superadmin' ? 'ALL' : (superadmin ? document.getElementById('newUserSite').value : activeSite);
+    if(!lastName || !firstName || !phone || !/^\d{4}$/.test(pin)){ return; }
+    const newUser = {id:'u'+Date.now(), firstName, lastName, phone, email, role, site, pin};
+    users.push(newUser);
+    saveUser(newUser);
+    logActivity('user_changed', site, `Created account ${firstName} ${lastName} (${roleLabel(role)})`);
+    renderUsersTable();
+    document.getElementById('newUserLastName').value = '';
+    document.getElementById('newUserFirstName').value = '';
+    document.getElementById('newUserPhone').value = '';
+    document.getElementById('newUserEmail').value = '';
+    document.getElementById('newUserPin').value = '';
+  };
+}
+
+let editingUserId = null;
+
+function renderUsersTable(){
+  const superBody = document.getElementById('superusersBody');
+  const staffBody = document.getElementById('staffBody');
+  if(!staffBody) return;
+  const superadmin = isSuperadmin();
+  const visibleUsers = superadmin ? users : users.filter(u=>u.site===activeSite && u.role !== 'superadmin');
+  if(superBody) superBody.innerHTML = '';
+  staffBody.innerHTML = '';
+
+  const supers = visibleUsers.filter(u=>u.role === 'superadmin');
+  const staff = visibleUsers.filter(u=>u.role !== 'superadmin');
+
+  if(superBody && supers.length === 0){
+    superBody.innerHTML = `<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:14px 0;">No Superusers.</td></tr>`;
+  }
+  if(staff.length === 0){
+    staffBody.innerHTML = `<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:14px 0;">No staff accounts${superadmin ? '' : ' for ' + activeSite}.</td></tr>`;
+  }
+
+  const userRowsQuery = (sel)=>{
+    const out = [];
+    if(superBody) out.push(...superBody.querySelectorAll(sel));
+    out.push(...staffBody.querySelectorAll(sel));
+    return out;
+  };
+
+  visibleUsers.forEach(u=>{
+    const target = (u.role === 'superadmin') ? superBody : staffBody;
+    if(!target) return;
+    const tr = document.createElement('tr');
+    const editing = editingUserId === u.id;
+    const isLastSuperuser = u.role === 'superadmin' && users.filter(x=>x.role==='superadmin').length === 1;
+    if(editing){ tr.className = 'editing-row'; }
+    const dis = editing ? '' : 'disabled';
+    const siteCell = superadmin
+      ? `<select class="site-select" data-id="${u.id}" ${dis}>${SITE_CODES.map(c=>`<option value="${c}" ${u.site===c?'selected':''}>${c}</option>`).join('')}${u.site==='ALL' ? `<option value="ALL" selected>ALL</option>` : ''}</select>`
+      : `<span class="pin-cell">${u.site}</span>`;
+    tr.innerHTML = `
+      <td><input class="lastname-input" data-id="${u.id}" value="${u.lastName}" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--sans);" /></td>
+      <td><input class="firstname-input" data-id="${u.id}" value="${u.firstName}" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--sans);" /></td>
+      <td><input class="phone-input" data-id="${u.id}" value="${u.phone}" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
+      <td><input class="email-input" data-id="${u.id}" value="${u.email || ''}" placeholder="none set" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--sans);" /></td>
+      <td>${siteCell}</td>
+      <td><input class="pin-cell-input" data-id="${u.id}" value="${u.pin}" maxlength="4" ${dis} style="width:56px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
+      <td>
+        <span class="role-badge" id="roleIcon-${u.id}">${roleIcon(u.role)}</span>
+        <select class="role-select" data-id="${u.id}" ${dis}>
+          <option value="admin" ${u.role==='admin'?'selected':''}>Operations Manager</option>
+          ${superadmin ? `<option value="superadmin" ${u.role==='superadmin'?'selected':''}>Superuser</option>` : ''}
+        </select>
+      </td>
+      <td>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-start;">
+          <button class="edit-link" data-id="${u.id}">${editing ? 'Save' : 'Edit'}</button>
+          <button class="reset-pin-link" data-id="${u.id}">Reset PIN</button>
+          ${isLastSuperuser
+            ? `<button class="remove-link" data-id="${u.id}" disabled title="Assign another Superuser before removing this one" style="opacity:.4; cursor:not-allowed;">Delete</button>`
+            : `<button class="remove-link" data-id="${u.id}">Delete</button>`}
+        </div>
+      </td>
+    `;
+    target.appendChild(tr);
+  });
+  userRowsQuery('.edit-link').forEach(btn=>{
+    btn.onclick = ()=>{
+      editingUserId = (editingUserId === btn.dataset.id) ? null : btn.dataset.id;
+      renderUsersTable();
+    };
+  });
+  userRowsQuery('.lastname-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const u = users.find(x=>x.id===inp.dataset.id);
+      u.lastName = inp.value.trim() || u.lastName;
+      inp.value = u.lastName;
+      saveUser(u);
+    };
+  });
+  userRowsQuery('.firstname-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const u = users.find(x=>x.id===inp.dataset.id);
+      u.firstName = inp.value.trim() || u.firstName;
+      inp.value = u.firstName;
+      saveUser(u);
+    };
+  });
+  userRowsQuery('.phone-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const u = users.find(x=>x.id===inp.dataset.id);
+      const cleaned = inp.value.replace(/[()]/g, '').replace(/\s+/g,' ').trim();
+      u.phone = cleaned || u.phone;
+      inp.value = u.phone;
+      saveUser(u);
+    };
+  });
+  userRowsQuery('.email-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const u = users.find(x=>x.id===inp.dataset.id);
+      u.email = inp.value.trim();
+      saveUser(u);
+    };
+  });
+  userRowsQuery('.reset-pin-link').forEach(btn=>{
+    btn.onclick = ()=>{
+      const u = users.find(x=>x.id===btn.dataset.id);
+      const newPin = String(Math.floor(1000 + Math.random()*9000));
+      u.pin = newPin;
+      console.log(`[PIN reset] New PIN ${newPin} would be texted to ${fullName(u)} at ${u.phone}`);
+      saveUser(u);
+      logActivity('user_changed', u.site, `PIN reset for ${fullName(u)}`);
+      renderUsersTable();
+      showToast(`New PIN texted to ${fullName(u)} at ${maskPhone(u.phone)}`, false);
+    };
+  });
+  userRowsQuery('.role-select').forEach(sel=>{
+    sel.onchange = ()=>{
+      const u = users.find(x=>x.id===sel.dataset.id);
+
+      // Same protection as delete: can't leave the system with zero Superusers
+      if(u.role === 'superadmin' && sel.value !== 'superadmin'){
+        const otherSuperusers = users.filter(x=>x.role==='superadmin' && x.id!==u.id);
+        if(otherSuperusers.length === 0){
+          alert("Can't change the only Superuser to another role. Assign another Superuser first.");
+          sel.value = 'superadmin';
+          return;
+        }
+      }
+
+      logActivity('user_changed', u.site, `${fullName(u)} role changed to ${roleLabel(sel.value)}`);
+      u.role = sel.value;
+      if(u.role === 'superadmin'){ u.site = 'ALL'; }
+      else if(u.site === 'ALL'){ u.site = activeSite; }
+      if(loggedInUser && loggedInUser.id === u.id){ currentRole = u.role; }
+      saveUser(u);
+      editingUserId = null;
+      renderAll();
+    };
+  });
+  userRowsQuery('.site-select').forEach(sel=>{
+    sel.onchange = ()=>{
+      const u = users.find(x=>x.id===sel.dataset.id);
+      u.site = sel.value;
+      saveUser(u);
+    };
+  });
+  userRowsQuery('.pin-cell-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const u = users.find(x=>x.id===inp.dataset.id);
+      if(/^\d{4}$/.test(inp.value.trim())){ u.pin = inp.value.trim(); saveUser(u); }
+      else { inp.value = u.pin; }
+    };
+  });
+  userRowsQuery('.remove-link').forEach(btn=>{
+    btn.onclick = ()=>{
+      const target = users.find(u=>u.id===btn.dataset.id);
+      if(target && target.role === 'superadmin'){
+        const otherSuperadmins = users.filter(u=>u.role==='superadmin' && u.id!==target.id);
+        if(otherSuperadmins.length === 0){
+          alert("Can't delete the only Superuser. Assign another Superuser first, then delete this one.");
+          return;
+        }
+      }
+      logActivity('user_changed', target ? target.site : '\u2014', `Deleted account ${target ? fullName(target) : ''}`);
+      deleteUser(btn.dataset.id);
+      users = users.filter(u=>u.id!==btn.dataset.id);
+      if(editingUserId === btn.dataset.id){ editingUserId = null; }
+      renderUsersTable();
+    };
+  });
+}
+
+function renderSitesView(root){
+  root.innerHTML = `
+    <h1>Sites</h1>
+    <div class="sub">Manage each property's display name and toll-free number.</div>
+    <div class="admin-section">
+      <table class="data-table">
+        <thead><tr><th>Code</th><th>Name</th><th>Toll-Free Number</th><th>Status</th></tr></thead>
+        <tbody id="sitesBody"></tbody>
+      </table>
+    </div>
+  `;
+  renderSitesTable();
+}
+
+function renderSitesTable(){
+  const body = document.getElementById('sitesBody');
+  if(!body) return;
+  body.innerHTML = '';
+  sites.forEach(s=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="pin-cell">${s.code}</span></td>
+      <td><input class="site-name-input" data-code="${s.code}" value="${s.name}" style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px 8px; font-family:var(--sans);" /></td>
+      <td><input class="site-tf-input" data-code="${s.code}" value="${s.tollFree}" placeholder="+1 (8XX) XXX-XXXX" style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px 8px; font-family:var(--mono);" /></td>
+      <td>
+        <select class="site-status-select" data-code="${s.code}" style="background:var(--panel-2); color:${(s.status||'pending')==='live' ? 'var(--clear)' : 'var(--weather)'}; border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:12px; font-family:var(--sans); font-weight:700;">
+          <option value="live" ${(s.status||'pending')==='live'?'selected':''}>Live</option>
+          <option value="pending" ${(s.status||'pending')==='pending'?'selected':''}>Pending</option>
+        </select>
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('.site-name-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const s = sites.find(x=>x.code===inp.dataset.code);
+      s.name = inp.value.trim() || s.code;
+      saveSiteMeta(s);
+      renderSiteBox();
+    };
+  });
+  body.querySelectorAll('.site-status-select').forEach(sel=>{
+    sel.onchange = ()=>{
+      const s = sites.find(x=>x.code===sel.dataset.code);
+      if(sel.value === 'live' && !s.tollFree.trim()){
+        alert(`${s.code} needs a verified toll-free number before it can go live.`);
+        sel.value = s.status || 'pending';
+        return;
+      }
+      s.status = sel.value;
+      saveSiteMeta(s);
+      renderAll();
+    };
+  });
+  body.querySelectorAll('.site-tf-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const s = sites.find(x=>x.code===inp.dataset.code);
+      s.tollFree = inp.value.trim();
+      saveSiteMeta(s);
+    };
+  });
+}
+
+function renderAll(){
+  renderSignedInBox();
+  renderSiteBox();
+  renderNav();
+  renderSidebar();
+  renderView();
+}
+
+function reviewStatus(r){
+  if(!r.lastReviewed) return {text:'Never reviewed', stale:true};
+  const days = Math.floor((Date.now() - r.lastReviewed) / 86400000);
+  const when = new Date(r.lastReviewed).toLocaleDateString();
+  if(days >= 7) return {text:`Last reviewed ${when} (${days}d ago) \u2014 review due`, stale:true};
+  return {text:`Last reviewed ${when} by ${r.reviewedBy || 'unknown'}`, stale:false};
+}
+
+function renderRecipientsView(root){
+  const recipients = recipientsBySite[activeSite];
+  root.innerHTML = `
+    <h1>Recipients \u2014 ${activeSite}</h1>
+    <div class="sub">Add or remove individual people, and confirm each list is current before the weekend.</div>
+    <button class="all-btn" id="reviewReminderBtn" style="width:auto; padding:8px 14px; margin-bottom:20px;">Send review reminder to Operations Managers</button>
+    <div id="listBlocks"></div>
+  `;
+  document.getElementById('reviewReminderBtn').onclick = sendWeeklyReviewReminder;
+  const holder = document.getElementById('listBlocks');
+  recipients.forEach(r=>{
+    const status = reviewStatus(r);
+    const sec = document.createElement('div');
+    sec.className = 'admin-section';
+    sec.innerHTML = `
+      <h3>${r.name} <span style="color:var(--muted); font-weight:400;">\u00b7 ${r.members.length}</span></h3>
+      <div class="import-picker-note" style="color:${status.stale ? 'var(--weather)' : 'var(--muted)'}; margin-bottom:10px;">
+        ${status.text}
+        <button class="edit-link" data-review="${r.id}" style="margin-left:10px;">Mark reviewed</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Phone</th><th></th></tr></thead>
+        <tbody id="members-${r.id}"></tbody>
+      </table>
+      <div class="add-user-row">
+        <input type="text" data-addname="${r.id}" placeholder="Name" />
+        <input type="text" data-addphone="${r.id}" placeholder="Phone" />
+        <button class="add-btn" data-addbtn="${r.id}">Add</button>
+      </div>
+    `;
+    holder.appendChild(sec);
+
+    const tbody = sec.querySelector(`#members-${r.id}`);
+    if(r.members.length === 0){
+      tbody.innerHTML = `<tr><td colspan="3" style="color:var(--muted); text-align:center; padding:14px 0;">No one on this list yet.</td></tr>`;
+    } else {
+      r.members.forEach((m, idx)=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${m.name}</td><td>${m.phone}</td>
+          <td><button class="remove-link" data-rm="${r.id}" data-idx="${idx}">Remove</button></td>`;
+        tbody.appendChild(tr);
+      });
+    }
+  });
+
+  holder.querySelectorAll('[data-addbtn]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.addbtn;
+      const r = recipients.find(x=>x.id===id);
+      const nameEl = holder.querySelector(`[data-addname="${id}"]`);
+      const phoneEl = holder.querySelector(`[data-addphone="${id}"]`);
+      const name = nameEl.value.trim();
+      const phone = phoneEl.value.replace(/[()]/g,'').replace(/\s+/g,' ').trim();
+      const digits = phone.replace(/[^\d]/g,'');
+      if(!name || digits.length < 10) return;
+      const optedOut = optOutBySite[activeSite].some(o=>o.phone.replace(/[^\d]/g,'')===digits);
+      if(optedOut){
+        showToast(`${name} has opted out at ${activeSite} and can't be added.`, true);
+        return;
+      }
+      r.members.push({name, phone});
+      logActivity('list_changed', activeSite, `Added ${name} to ${r.name}`);
+      saveList(activeSite, r);
+      renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-rm]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.rm);
+      const removed = r.members[Number(btn.dataset.idx)];
+      r.members.splice(Number(btn.dataset.idx), 1);
+      logActivity('list_changed', activeSite, `Removed ${removed ? removed.name : 'someone'} from ${r.name}`);
+      saveList(activeSite, r);
+      renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-review]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.review);
+      r.lastReviewed = Date.now();
+      r.reviewedBy = fullName(loggedInUser);
+      logActivity('list_changed', activeSite, `${r.name} marked reviewed`);
+      saveList(activeSite, r);
+      showToast(`${r.name} marked reviewed.`, false);
+      renderAll();
+    };
+  });
+}
+
+function sendWeeklyReviewReminder(){
+  const managers = users.filter(u => u.role === 'superadmin' || (u.role === 'admin' && u.site === activeSite));
+  const stale = recipientsBySite[activeSite].filter(r => reviewStatus(r).stale).map(r=>r.name);
+  const msg = stale.length
+    ? `${activeSite} recipient review due before this weekend. Lists needing review: ${stale.join(', ')}.`
+    : `${activeSite} recipient lists are all current. No review needed.`;
+  console.log('[Weekly review reminder]', msg, '-> would text:', managers.map(m=>`${fullName(m)} ${m.phone}`).join(' | '));
+  showToast(`Review reminder sent to ${managers.length} manager(s)`, false);
+}
+
+function fmtWhen(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+function buildReportSummary(sinceMs, scopeSite){
+  const cutoff = Date.now() - sinceMs;
+  const entries = activityLog.filter(e =>
+    e.ts >= cutoff &&
+    reportSettings.include[e.type] &&
+    (!scopeSite || e.site === scopeSite)
+  );
+  const byType = {};
+  entries.forEach(e=>{ byType[e.type] = (byType[e.type]||0) + 1; });
+  const alerts = entries.filter(e=>e.type==='alert_sent');
+  const reach = alerts.reduce((n,e)=> n + (e.meta && e.meta.recipients ? e.meta.recipients : 0), 0);
+  return {entries, byType, alertCount: alerts.length, reach};
+}
+
+function renderReportsView(root){
+  const superuser = isSuperadmin();
+  const scopeSite = superuser ? null : activeSite;
+  const cadenceMs = reportSettings.cadence === 'daily' ? 86400000
+                  : reportSettings.cadence === 'monthly' ? 2592000000
+                  : 604800000;
+  const summary = buildReportSummary(cadenceMs, scopeSite);
+  const periodLabel = reportSettings.cadence === 'daily' ? '24 hours' : reportSettings.cadence === 'monthly' ? '30 days' : '7 days';
+
+  root.innerHTML = `
+    <h1>Reports${superuser ? '' : ' \u2014 ' + activeSite}</h1>
+    <div class="sub">${superuser
+      ? 'Activity across all sites, and the email digest sent to Lancelot administration.'
+      : `Activity for ${siteName(activeSite)}. You can send a report for your property at any time.`}</div>
+
+    <div class="admin-section role-group">
+      <h3>Email report <span class="group-note">${superuser ? 'Sent to Lancelot administration' : 'Distribution managed by a Superuser'}</span></h3>
+      ${superuser ? `
+      <div class="add-user-row" style="margin-top:0;">
+        <input type="text" id="newReportRecipient" placeholder="Email address" />
+        <select id="reportCadence">
+          <option value="daily" ${reportSettings.cadence==='daily'?'selected':''}>Daily</option>
+          <option value="weekly" ${reportSettings.cadence==='weekly'?'selected':''}>Weekly</option>
+          <option value="monthly" ${reportSettings.cadence==='monthly'?'selected':''}>Monthly</option>
+        </select>
+        <button class="add-btn" id="addReportRecipientBtn">Add recipient</button>
+      </div>` : ''}
+      <div id="reportRecipientList" style="margin-top:${superuser ? '10' : '0'}px;"></div>
+
+      ${superuser ? `
+      <div class="import-picker-note" style="margin-top:14px; margin-bottom:6px;">Include in the report:</div>
+      <div id="reportIncludes" style="display:flex; gap:14px; flex-wrap:wrap;"></div>` : ''}
+
+      <button class="all-btn" id="previewReportBtn" style="width:auto; padding:8px 14px; margin-top:16px;">
+        ${superuser ? 'Preview &amp; send now' : `Preview &amp; send ${activeSite} report`}
+      </button>
+      <div id="reportPreview"></div>
+    </div>
+
+    <div class="admin-section role-group">
+      <h3>Activity log <span class="group-note">${summary.entries.length} event(s) in the last ${periodLabel}</span></h3>
+      <div class="import-picker-note" style="margin-bottom:10px;">
+        <strong>${summary.alertCount}</strong> alert(s) sent, reaching <strong>${summary.reach}</strong> recipient(s).
+      </div>
+      <table class="data-table">
+        <thead><tr><th>When</th><th>Type</th><th>Site</th><th>Who</th><th>Detail</th></tr></thead>
+        <tbody id="activityBody"></tbody>
+      </table>
+    </div>
+  `;
+
+  const listEl = document.getElementById('reportRecipientList');
+  if(reportSettings.recipients.length === 0){
+    listEl.innerHTML = `<div class="import-picker-note">${superuser
+      ? 'No report recipients yet. Add at least one email address.'
+      : 'No report recipients configured yet. Ask a Superuser to set the distribution list.'}</div>`;
+  } else {
+    listEl.innerHTML = reportSettings.recipients.map((e,i)=>
+      `<span class="to-pill" style="margin-right:6px;">${e}${superuser ? ` <button class="remove-link" data-rmrep="${i}" style="margin-left:6px;">\u00d7</button>` : ''}</span>`
+    ).join('');
+  }
+
+  if(superuser){
+    listEl.querySelectorAll('[data-rmrep]').forEach(b=>{
+      b.onclick = ()=>{ reportSettings.recipients.splice(Number(b.dataset.rmrep),1); saveReportSettings(); renderAll(); };
+    });
+    document.getElementById('addReportRecipientBtn').onclick = ()=>{
+      const v = document.getElementById('newReportRecipient').value.trim();
+      if(!v || !v.includes('@')) return;
+      reportSettings.recipients.push(v);
+      saveReportSettings();
+      renderAll();
+    };
+    document.getElementById('reportCadence').onchange = (e)=>{
+      reportSettings.cadence = e.target.value;
+      saveReportSettings();
+      renderAll();
+    };
+
+    const inc = document.getElementById('reportIncludes');
+    inc.innerHTML = Object.keys(EVENT_TYPES).map(k=>
+      `<label style="font-size:12.5px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" data-inc="${k}" ${reportSettings.include[k]?'checked':''} style="accent-color:var(--gate);" />
+        ${EVENT_TYPES[k].label}
+      </label>`
+    ).join('');
+    inc.querySelectorAll('[data-inc]').forEach(cb=>{
+      cb.onchange = ()=>{ reportSettings.include[cb.dataset.inc] = cb.checked; saveReportSettings(); renderAll(); };
+    });
+  }
+
+  document.getElementById('previewReportBtn').onclick = ()=> previewReport(cadenceMs, scopeSite);
+
+  const body = document.getElementById('activityBody');
+  const shown = activityLog.filter(e => !scopeSite || e.site === scopeSite);
+  if(shown.length === 0){
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--muted); text-align:center; padding:18px 0;">No activity recorded yet. Send an alert or make a change and it will appear here.</td></tr>`;
+  } else {
+    shown.slice(0, 60).forEach(e=>{
+      const t = EVENT_TYPES[e.type] || {label:e.type, color:'var(--muted)'};
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="white-space:nowrap; color:var(--muted); font-family:var(--mono); font-size:11.5px;">${fmtWhen(e.ts)}</td>
+        <td><span style="color:${t.color}; font-weight:700; font-size:11.5px;">${t.label}</span></td>
+        <td><span class="pin-cell">${e.site}</span></td>
+        <td style="font-size:12.5px;">${e.actor}</td>
+        <td style="font-size:12.5px;">${e.detail}${e.meta && e.meta.recipients ? ` <span style="color:var(--muted);">(${e.meta.recipients} recipients)</span>` : ''}</td>
+      `;
+      body.appendChild(tr);
+    });
+  }
+}
+
+function previewReport(cadenceMs, scopeSite){
+  const s = buildReportSummary(cadenceMs, scopeSite);
+  const period = reportSettings.cadence === 'daily' ? 'Daily' : reportSettings.cadence === 'monthly' ? 'Monthly' : 'Weekly';
+  const lines = [];
+  if(scopeSite){
+    lines.push(`${period} Alert System Report \u2014 ${scopeSite} (${siteName(scopeSite)})`);
+    lines.push(`Lancelot Entertainment Investment Co`);
+  } else {
+    lines.push(`${period} Alert System Report \u2014 Lancelot Entertainment Investment Co`);
+  }
+  lines.push(`Generated ${new Date().toLocaleString()}`);
+  lines.push('='.repeat(62));
+  lines.push('');
+  lines.push(scopeSite ? 'SUMMARY' : 'COMPANY-WIDE');
+  lines.push(`  Alerts sent: ${s.alertCount}`);
+  lines.push(`  Recipients reached: ${s.reach}`);
+  Object.keys(s.byType).forEach(k=>{
+    lines.push(`  ${(EVENT_TYPES[k]||{label:k}).label}: ${s.byType[k]}`);
+  });
+  lines.push('');
+  const codes = scopeSite ? [scopeSite] : SITE_CODES;
+  lines.push(scopeSite ? 'PROPERTY STATUS' : 'BY PROPERTY');
+  codes.forEach(code=>{
+    const siteEntries = s.entries.filter(e=>e.site === code);
+    const siteAlerts = siteEntries.filter(e=>e.type === 'alert_sent');
+    const siteReach = siteAlerts.reduce((n,e)=> n + (e.meta && e.meta.recipients ? e.meta.recipients : 0), 0);
+    const statusTag = isSiteLive(code) ? '' : '  [not live]';
+    lines.push(`  ${code} \u2014 ${siteName(code)}${statusTag}`);
+    if(siteEntries.length === 0){
+      lines.push('    No activity.');
+    } else {
+      lines.push(`    Alerts sent: ${siteAlerts.length}   Recipients reached: ${siteReach}   Total events: ${siteEntries.length}`);
+      const lists = recipientsBySite[code] || [];
+      const roster = lists.reduce((n,r)=>n + r.members.length, 0);
+      const stale = lists.filter(r=>reviewStatus(r).stale).map(r=>r.name);
+      lines.push(`    Roster: ${roster} on ${lists.length} list(s)${stale.length ? `   Review overdue: ${stale.join(', ')}` : ''}`);
+      lines.push(`    Opt-outs on record: ${(optOutBySite[code]||[]).length}`);
+    }
+    lines.push('');
+  });
+  if(s.entries.length === 0){
+    lines.push('No activity in this period.');
+  } else {
+    lines.push('EVENT DETAIL');
+    s.entries.slice(0,40).forEach(e=>{
+      lines.push(`  ${fmtWhen(e.ts)}  [${e.site}]  ${(EVENT_TYPES[e.type]||{label:e.type}).label} \u2014 ${e.detail} (${e.actor})`);
+    });
+  }
+  const text = lines.join('\n');
+  console.log('[Report email]\n' + text + '\n-> would email:', reportSettings.recipients.join(', ') || '(no recipients set)');
+
+  const box = document.getElementById('reportPreview');
+  box.innerHTML = `
+    <div class="msg-box" style="margin-top:14px; max-height:280px; overflow:auto;">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>
+    <div class="import-picker-note">${reportSettings.recipients.length
+      ? `Demo mode (no email backend yet) \u2014 would send to ${reportSettings.recipients.join(', ')}`
+      : 'Add a recipient email address above before this can send.'}</div>
+  `;
+  if(reportSettings.recipients.length){
+    showToast(`Report generated for ${reportSettings.recipients.length} recipient(s)`, false);
+  }
+}
+
+function renderOptOutsView(root){
+  root.innerHTML = `
+    <h1>Opt-Outs \u2014 ${activeSite}</h1>
+    <div class="sub">Numbers that have opted out (replied STOP) at ${siteName(activeSite)}. CSV imports for this site skip any phone number on this list.</div>
+    <div class="admin-section">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Phone</th><th>Date</th><th></th></tr></thead>
+        <tbody id="optOutsBody"></tbody>
+      </table>
+      <div class="add-user-row">
+        <input type="text" id="newOptOutName" placeholder="Name (optional)" />
+        <input type="text" id="newOptOutPhone" placeholder="Phone" />
+        <button class="add-btn" id="addOptOutBtn">Add to opt-out list</button>
+      </div>
+    </div>
+  `;
+  renderOptOutsTable();
+  document.getElementById('addOptOutBtn').onclick = ()=>{
+    const name = document.getElementById('newOptOutName').value.trim();
+    const phone = document.getElementById('newOptOutPhone').value.trim();
+    const digits = phone.replace(/[^\d]/g,'');
+    if(digits.length < 10){ return; }
+    optOutBySite[activeSite].push({name: name || '(no name)', phone, date: new Date().toLocaleDateString()});
+    logActivity('optout', activeSite, `${name || phone} opted out`);
+    saveOptOuts(activeSite);
+    renderOptOutsTable();
+    document.getElementById('newOptOutName').value = '';
+    document.getElementById('newOptOutPhone').value = '';
+  };
+}
+
+function renderOptOutsTable(){
+  const body = document.getElementById('optOutsBody');
+  if(!body) return;
+  const list = optOutBySite[activeSite];
+  body.innerHTML = '';
+  if(list.length === 0){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="4" style="color:var(--muted); text-align:center; padding:18px 0;">No opt-outs recorded for ${activeSite} yet.</td>`;
+    body.appendChild(tr);
+    return;
+  }
+  list.forEach((o, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${o.name}</td>
+      <td>${o.phone}</td>
+      <td>${o.date}</td>
+      <td><button class="remove-link" data-idx="${idx}">Resubscribe</button></td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('.remove-link').forEach(btn=>{
+    btn.onclick = ()=>{
+      optOutBySite[activeSite].splice(Number(btn.dataset.idx), 1);
+      saveOptOuts(activeSite);
+      renderOptOutsTable();
+    };
+  });
+}
+
+function formatTime12(hhmm){
+  if(!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+function defaultTimeValue(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function nextQuarterHour(hhmm){
+  let [h, m] = hhmm.split(':').map(Number);
+  let total = h * 60 + m;
+  const rem = total % 15;
+  if(rem !== 0){ total += (15 - rem); }
+  total = total % (24*60);
+  const nh = Math.floor(total/60);
+  const nm = total % 60;
+  return String(nh).padStart(2,'0') + ':' + String(nm).padStart(2,'0');
+}
+
+function buildMessage(alert, timeVal, resumeVal){
+  let msg = alert.text.replace('{time}', formatTime12(timeVal));
+  if(msg.includes('{resume}')){
+    msg = msg.replace('{resume}', formatTime12(resumeVal));
+  }
+  return msg;
+}
+
+function openModal(alert){
+  const recipients = recipientsBySite[activeSite];
+  if(selected.size===0){
+    alert('Select at least one recipient list first.');
+    return;
+  }
+  pendingAlert = alert;
+  confirmStep = 1;
+  const overlay = document.getElementById('overlay');
+  const modal = document.getElementById('modal');
+  const isCritical = !!alert.critical;
+  const needsTime = alert.text.includes('{time}');
+  modal.className = 'modal' + (isCritical ? ' danger':'');
+  document.getElementById('modalEyebrow').textContent = isCritical ? 'Double confirmation required' : 'Confirm send';
+  document.getElementById('modalTitle').textContent = alert.name + ' \u2014 ' + activeSite;
+  document.getElementById('confirmPinInput').value = '';
+  document.getElementById('pinConfirmError').textContent = '';
+  document.getElementById('authSlot').innerHTML = '';
+  authCode = '';
+  authApprovers = [];
+
+  const toRow = document.getElementById('toRow');
+  toRow.innerHTML = '';
+  recipients.filter(r=>selected.has(r.id)).forEach(r=>{
+    const p = document.createElement('span');
+    p.className = 'to-pill';
+    p.textContent = r.name + ' (' + r.members.length + ')';
+    toRow.appendChild(p);
+  });
+
+  const timeSlot = document.getElementById('timeSlot');
+  if(needsTime){
+    const defaultVal = defaultTimeValue();
+    const needsResume = alert.text.includes('{resume}');
+    if(needsResume){
+      const resumeDefault = nextQuarterHour(defaultVal);
+      timeSlot.innerHTML = `
+        <div class="time-row"><label for="timeInput">Time</label><input type="time" id="timeInput" value="${defaultVal}" /></div>
+        <div class="time-row"><label for="resumeInput">Resume</label><input type="time" id="resumeInput" value="${resumeDefault}" /></div>
+      `;
+      const refresh = ()=>{
+        const t = document.getElementById('timeInput').value;
+        const r = document.getElementById('resumeInput').value;
+        document.getElementById('msgBox').textContent = buildMessage(alert, t, r);
+        updateCharCount();
+      };
+      document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal, resumeDefault);
+      document.getElementById('timeInput').oninput = refresh;
+      document.getElementById('resumeInput').oninput = refresh;
+    } else {
+      timeSlot.innerHTML = `<div class="time-row"><label for="timeInput">Time</label><input type="time" id="timeInput" value="${defaultVal}" /></div>`;
+      document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal);
+      document.getElementById('timeInput').oninput = (e)=>{
+        document.getElementById('msgBox').textContent = buildMessage(alert, e.target.value);
+        updateCharCount();
+      };
+    }
+  } else {
+    timeSlot.innerHTML = '';
+    document.getElementById('msgBox').textContent = alert.text;
+  }
+  updateCharCount();
+
+  const warnSlot = document.getElementById('warnSlot');
+  const stepTrack = document.getElementById('stepTrack');
+  const confirmBtn = document.getElementById('confirmBtn');
+
+  if(isCritical){
+    warnSlot.innerHTML = `<div class="warn-box">This dispatches an Active Shooter alert to every recipient in the lists above. Step 1 of 2 \u2014 review the message, then continue.</div>`;
+    stepTrack.style.display = 'flex';
+    document.getElementById('s1').className = 'done';
+    document.getElementById('s2').className = '';
+    confirmBtn.textContent = 'Continue';
+    confirmBtn.className = 'btn primary danger';
+  } else {
+    warnSlot.innerHTML = '';
+    stepTrack.style.display = 'none';
+    confirmBtn.textContent = 'Send now';
+    confirmBtn.className = 'btn primary';
+  }
+
+  overlay.classList.add('show');
+}
+
+function updateCharCount(){
+  const t = document.getElementById('msgBox').innerText;
+  document.getElementById('charCount').textContent = t.length + ' characters';
+}
+document.getElementById('msgBox').addEventListener('input', updateCharCount);
+
+document.getElementById('cancelBtn').onclick = closeModal;
+function closeModal(){
+  document.getElementById('overlay').classList.remove('show');
+  pendingAlert = null;
+}
+
+document.getElementById('confirmBtn').onclick = ()=>{
+  if(!pendingAlert) return;
+  const isCritical = !!pendingAlert.critical;
+
+  if(isCritical && confirmStep===1){
+    confirmStep = 2;
+
+    // Second factor: text a one-time code to the sender's own phone
+    authCode = String(Math.floor(100000 + Math.random()*900000));
+    console.log(`[Authorization] Code ${authCode} would be texted to ${fullName(loggedInUser)} at ${loggedInUser.phone}`);
+
+    document.getElementById('warnSlot').innerHTML = `<div class="warn-box"><strong>Final confirmation.</strong> This will immediately text all selected lists the Active Shooter alert shown above. This cannot be undone once sent.</div>`;
+    document.getElementById('s2').className = 'done';
+    document.getElementById('authSlot').innerHTML = `
+      <div class="warn-box">A 6-digit authorization code was sent to your phone, ${maskPhone(loggedInUser.phone)}. Enter it below along with your PIN.</div>
+      <div class="time-row">
+        <label for="authCodeInput">Auth code</label>
+        <input type="text" id="authCodeInput" maxlength="6" inputmode="numeric" placeholder="******" style="width:110px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 10px; font-size:13px; font-family:var(--mono); letter-spacing:3px;" />
+      </div>
+      <div class="import-picker-note">Demo mode (no SMS backend yet) \u2014 code is ${authCode}</div>
+    `;
+    document.getElementById('confirmBtn').textContent = 'Confirm \u2014 send Active Shooter alert';
+    return;
+  }
+
+  if(isCritical){
+    const enteredAuth = (document.getElementById('authCodeInput')?.value || '').trim();
+    if(enteredAuth !== authCode){
+      document.getElementById('pinConfirmError').textContent = 'Authorization code doesn\'t match. Check the code sent to your phone.';
+      return;
+    }
+  }
+
+  const enteredPin = document.getElementById('confirmPinInput').value.trim();
+  if(!loggedInUser || enteredPin !== loggedInUser.pin){
+    document.getElementById('pinConfirmError').textContent = 'Incorrect PIN. Re-enter your PIN to send.';
+    document.getElementById('confirmPinInput').value = '';
+    return;
+  }
+
+  const recipients = recipientsBySite[activeSite];
+  const chosen = recipients.filter(r=>selected.has(r.id));
+  const names = chosen.map(r=>r.name).join(', ');
+  const headcount = chosen.reduce((n,r)=>n + r.members.length, 0);
+  const alertName = pendingAlert.name;
+  const site = activeSite;
+  const isDrill = pendingAlert.cat === 'test';
+  const messageText = document.getElementById('msgBox').innerText;
+
+  logActivity(
+    isDrill ? 'drill_sent' : 'alert_sent',
+    site,
+    `${alertName} \u2192 ${names}`,
+    {recipients: headcount, category: pendingAlert.cat, critical: !!pendingAlert.critical, message: messageText}
+  );
+
+  closeModal();
+  showToast(alertName + ' sent to ' + names + ' \u2014 ' + site, isCritical);
+};
+
+function showToast(msg, danger){
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'toast show' + (danger ? ' danger-toast':'');
+  setTimeout(()=> toast.className = 'toast', 3200);
+}
+
+// Rate limiting for PIN resets. NOTE: client-side only in this prototype —
+// this must be enforced server-side (Cloud Function) to actually be effective.
+const RESET_MAX_PER_WINDOW = 3;
+const RESET_WINDOW_MS = 60 * 60 * 1000;   // 1 hour
+const RESET_COOLDOWN_MS = 60 * 1000;      // 60 seconds between requests
+let resetAttempts = {};                   // digits -> [timestamps]
+
+function resetRateCheck(digits){
+  const now = Date.now();
+  const history = (resetAttempts[digits] || []).filter(t => now - t < RESET_WINDOW_MS);
+  resetAttempts[digits] = history;
+  if(history.length >= RESET_MAX_PER_WINDOW){
+    const oldest = Math.min(...history);
+    const mins = Math.ceil((RESET_WINDOW_MS - (now - oldest)) / 60000);
+    return {ok:false, reason:`Too many reset requests. Try again in about ${mins} minute(s), or contact your Operations Manager.`};
+  }
+  if(history.length && now - Math.max(...history) < RESET_COOLDOWN_MS){
+    const secs = Math.ceil((RESET_COOLDOWN_MS - (now - Math.max(...history))) / 1000);
+    return {ok:false, reason:`Please wait ${secs} second(s) before requesting another PIN.`};
+  }
+  return {ok:true};
+}
+
+function recordResetAttempt(digits){
+  if(!resetAttempts[digits]) resetAttempts[digits] = [];
+  resetAttempts[digits].push(Date.now());
+}
+
+function setupForgotPin(){
+  const link = document.getElementById('forgotPinLink');
+  const panel = document.getElementById('forgotPinPanel');
+  const sendBtn = document.getElementById('forgotPinSendBtn');
+  const msg = document.getElementById('forgotPinMessage');
+
+  link.onclick = ()=>{
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : 'block';
+    link.textContent = showing ? 'Forgot PIN?' : 'Cancel';
+    msg.textContent = '';
+    msg.style.color = 'var(--safety)';
+    document.getElementById('forgotPinPhone').value = '';
+    document.getElementById('forgotPinLastName').value = '';
+  };
+
+  sendBtn.onclick = ()=>{
+    msg.style.color = 'var(--safety)';
+    const raw = document.getElementById('forgotPinPhone').value;
+    const lastName = document.getElementById('forgotPinLastName').value.trim();
+    const digits = raw.replace(/[^\d]/g,'');
+
+    if(digits.length < 10 || !lastName){
+      msg.textContent = 'Enter both your phone number and last name.';
+      return;
+    }
+
+    const rate = resetRateCheck(digits);
+    if(!rate.ok){
+      msg.textContent = rate.reason;
+      return;
+    }
+    recordResetAttempt(digits);
+
+    const match = users.find(u =>
+      u.phone.replace(/[^\d]/g,'') === digits &&
+      u.lastName.toLowerCase() === lastName.toLowerCase()
+    );
+
+    // Deliberately vague: don't reveal whether the phone or the name was wrong,
+    // or whether an account exists at all.
+    if(!match){
+      msg.textContent = "If those details match an account, a new PIN has been sent by text.";
+      return;
+    }
+
+    const newPin = String(Math.floor(1000 + Math.random()*9000));
+    match.pin = newPin;
+    saveUser(match);
+    console.log(`[PIN reset] New PIN ${newPin} would be texted to ${fullName(match)} at ${match.phone}`);
+    msg.style.color = 'var(--clear)';
+    msg.textContent = `If those details match an account, a new PIN has been sent by text. (Demo: ${newPin})`;
+  };
+}
+
+function setBootState(msg, isError){
+  const el = document.getElementById('loginError');
+  const title = document.querySelector('#pinCard .login-title');
+  if(title) title.textContent = msg;
+  if(el && isError){ el.textContent = 'Check your connection and refresh.'; }
+}
+
+async function boot(){
+  setBootState('Connecting\u2026');
+  document.getElementById('keypad').style.opacity = '.3';
+  document.getElementById('keypad').style.pointerEvents = 'none';
+  try {
+    await firebase.auth().signInAnonymously();
+    await loadAll();
+    if(users.length === 0){
+      setBootState('No accounts found', true);
+      document.getElementById('loginError').textContent = 'The database has no user records. Check the Firebase seed import.';
+      return;
+    }
+    document.getElementById('keypad').style.opacity = '';
+    document.getElementById('keypad').style.pointerEvents = '';
+    setBootState('Enter your PIN');
+    renderPinDots();
+    renderKeypad();
+    setupForgotPin();
+  } catch(err){
+    console.error('Boot failed', err);
+    setBootState('Connection failed', true);
+    document.getElementById('loginError').textContent = err.message || 'Could not reach the database.';
+  }
+}
+
+boot();
+
+document.getElementById('verifyCodeBtn').onclick = ()=>{
+  const entered = document.getElementById('verifyCodeInput').value.trim();
+  if(!pendingVerifyUser){ return; }
+  if(entered === verifyCode){
+    completeLogin();
+  } else {
+    document.getElementById('verifyError').textContent = 'That code doesn\'t match. Check the console (demo mode) or your phone and try again.';
+    document.getElementById('verifyCodeInput').value = '';
+  }
+};
+document.getElementById('verifyBackBtn').onclick = backToPinStage;
+</script>
+</body>
+</html>
