@@ -1294,7 +1294,7 @@ function renderUsersTable(){
       if(u.role === 'superadmin' && sel.value !== 'superadmin'){
         const otherSuperusers = users.filter(x=>x.role==='superadmin' && x.id!==u.id);
         if(otherSuperusers.length === 0){
-          alert("Can't change the only Superuser to another role. Assign another Superuser first.");
+          window.alert("Can't change the only Superuser to another role. Assign another Superuser first.");
           sel.value = 'superadmin';
           return;
         }
@@ -1330,7 +1330,7 @@ function renderUsersTable(){
       if(target && target.role === 'superadmin'){
         const otherSuperadmins = users.filter(u=>u.role==='superadmin' && u.id!==target.id);
         if(otherSuperadmins.length === 0){
-          alert("Can't delete the only Superuser. Assign another Superuser first, then delete this one.");
+          window.alert("Can't delete the only Superuser. Assign another Superuser first, then delete this one.");
           return;
         }
       }
@@ -1388,7 +1388,7 @@ function renderSitesTable(){
     sel.onchange = ()=>{
       const s = sites.find(x=>x.code===sel.dataset.code);
       if(sel.value === 'live' && !s.tollFree.trim()){
-        alert(`${s.code} needs a verified toll-free number before it can go live.`);
+        window.alert(`${s.code} needs a verified toll-free number before it can go live.`);
         sel.value = s.status || 'pending';
         return;
       }
@@ -1811,10 +1811,16 @@ function buildMessage(alert, timeVal, resumeVal){
   return msg;
 }
 
-function openModal(alert){
+function openModal(alertDef){
+  const alert = alertDef;
   const recipients = recipientsBySite[activeSite];
   if(selected.size===0){
-    alert('Select at least one recipient list first.');
+    window.alert('Select at least one recipient list first.');
+    return;
+  }
+  const emptyLists = recipients.filter(r=>selected.has(r.id) && r.members.length === 0);
+  if(emptyLists.length === selected.size){
+    window.alert('The selected list' + (selected.size>1?'s have':' has') + ' no one on ' + (selected.size>1?'them':'it') + ' yet. Add recipients before sending.');
     return;
   }
   pendingAlert = alert;
