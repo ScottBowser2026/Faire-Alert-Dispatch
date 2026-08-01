@@ -1122,6 +1122,18 @@ function renderAdminPanelView(root){
       </table>
     </div>
 
+    ${superadmin ? `
+    <div class="admin-section role-group" style="border-left:3px solid var(--weather);">
+      <h3>Security <span class="group-note">One-time PIN encryption</span></h3>
+      <div class="import-picker-note" style="margin-bottom:10px;">
+        Converts every stored PIN to an encrypted hash and removes the plain text.
+        Safe to run more than once. After running, a forgotten PIN cannot be looked up \u2014
+        recovery is the Forgot PIN link, which texts a new one.
+      </div>
+      <button class="add-btn" id="migratePinsBtn">Encrypt stored PINs</button>
+      <div class="import-picker-note" id="migrateResult" style="margin-top:8px;"></div>
+    </div>` : ''}
+
     <div class="admin-section">
       <h3>Add an account</h3>
       <div class="add-user-row">
@@ -1141,6 +1153,28 @@ function renderAdminPanelView(root){
     </div>
   `;
   renderUsersTable();
+
+  const migBtn = document.getElementById('migratePinsBtn');
+  if(migBtn){
+    migBtn.onclick = ()=>{
+      const out = document.getElementById('migrateResult');
+      migBtn.disabled = true;
+      out.style.color = 'var(--muted)';
+      out.textContent = 'Working\u2026';
+      callFn('migratePins', {})
+        .then(res=>{
+          migBtn.disabled = false;
+          out.style.color = 'var(--clear)';
+          out.textContent = `Done \u2014 ${res.migrated} PIN(s) encrypted, ${res.skipped} already done or skipped. Log out and back in to confirm.`;
+        })
+        .catch(e=>{
+          migBtn.disabled = false;
+          out.style.color = 'var(--safety)';
+          out.textContent = e.message || 'Migration failed.';
+        });
+    };
+  }
+
   document.getElementById('addUserBtn').onclick = ()=>{
     const err = document.getElementById('addUserError');
     err.textContent = '';
