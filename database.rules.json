@@ -1,0 +1,28 @@
+{
+  "rules": {
+    "users": {
+      ".read": false,
+      ".write": false
+    },
+    "verificationCodes": {
+      ".read": false,
+      ".write": false
+    },
+    "rateLimits": {
+      ".read": false,
+      ".write": false
+    },
+    "activityLog": {
+      ".read": false,
+      ".write": false
+    },
+    "sites": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "reportSettings": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
