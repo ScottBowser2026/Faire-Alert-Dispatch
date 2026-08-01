@@ -2,6 +2,7 @@ const {onCall, onRequest, HttpsError} = require('firebase-functions/v2/https');
 const {defineSecret} = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const twilio = require('twilio');
+const crypto = require('crypto');
 
 const TWILIO_SID   = defineSecret('TWILIO_SID');
 const TWILIO_TOKEN = defineSecret('TWILIO_TOKEN');
@@ -31,6 +32,40 @@ function toE164(raw) {
 
 function client() {
   return twilio(TWILIO_SID.value(), TWILIO_TOKEN.value());
+}
+
+// ---------- PIN hashing ----------
+// A 4-digit PIN has only 10,000 possibilities, so the hash alone is not a
+// strong barrier — the SMS second factor is what actually protects the
+// account. Hashing prevents casual exposure of every PIN at once.
+function hashPin(pin, salt) {
+  return crypto.pbkdf2Sync(String(pin), salt, 100000, 32, 'sha256').toString('hex');
+}
+
+function makePinRecord(pin) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return {salt, hash: hashPin(pin, salt)};
+}
+
+function checkPin(pin, record) {
+  if (!record || !record.salt || !record.hash) return false;
+  const candidate = hashPin(pin, record.salt);
+  const a = Buffer.from(candidate, 'hex');
+  const b = Buffer.from(record.hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Strips the PIN record before anything goes back to the browser.
+function publicUser(id, u) {
+  return {
+    id,
+    firstName: u.firstName || '',
+    lastName: u.lastName || '',
+    phone: u.phone || '',
+    email: u.email || '',
+    role: u.role,
+    site: u.site,
+  };
 }
 
 async function siteMeta(site) {
@@ -290,7 +325,8 @@ exports.resetPin = onCall(
     if (!from || (meta.status || 'pending') !== 'live') return vague;
 
     const newPin = String(Math.floor(1000 + Math.random() * 9000));
-    await db.ref(`users/${userId}/pin`).set(newPin);
+    const rec = makePinRecord(newPin);
+    await db.ref(`users/${userId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null});
     await client().messages.create({
       from, to,
       body: `Faire Operations: your new PIN is ${newPin}. Keep it private. If you did not request this, contact your Superuser.`,
@@ -363,3 +399,247 @@ exports.smsWebhook = onRequest({region: REGION}, async (req, res) => {
 
   return reply('');
 });
+
+// ---------- 6. migratePins ----------
+// One-time conversion of plaintext PINs to salted hashes. Safe to run more
+// than once — accounts already migrated are skipped.
+exports.migratePins = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+  const snap = await db.ref('users').once('value');
+  const all = snap.val() || {};
+  const updates = {};
+  let migrated = 0, skipped = 0;
+
+  Object.entries(all).forEach(([id, u]) => {
+    if (u.pinHash && u.pinSalt) { skipped++; return; }
+    if (!u.pin) { skipped++; return; }
+    const rec = makePinRecord(u.pin);
+    updates[`users/${id}/pinHash`] = rec.hash;
+    updates[`users/${id}/pinSalt`] = rec.salt;
+    updates[`users/${id}/pin`] = null;   // remove the plaintext
+    migrated++;
+  });
+
+  if (Object.keys(updates).length) await db.ref().update(updates);
+  return {migrated, skipped};
+});
+
+// ---------- 7. login ----------
+// The browser no longer reads the user table. It sends a PIN; this returns
+// only the matching user's own record, with the PIN material stripped.
+exports.login = onCall(
+  {region: REGION, secrets: [TWILIO_SID, TWILIO_TOKEN]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {pin} = req.data || {};
+    if (!/^\d{4}$/.test(String(pin || ''))) {
+      throw new HttpsError('invalid-argument', 'Enter a 4-digit PIN.');
+    }
+
+    // Throttle by anonymous auth uid so a single client cannot grind through
+    // all 10,000 combinations.
+    const uid = req.auth.uid;
+    const rlRef = db.ref(`rateLimits/login/${uid}`);
+    const rl = (await rlRef.once('value')).val() || {};
+    const now = Date.now();
+    const recent = (rl.attempts || []).filter((t) => now - t < 15 * 60 * 1000);
+    if (recent.length >= 10) {
+      throw new HttpsError('resource-exhausted', 'Too many attempts. Wait 15 minutes and try again.');
+    }
+
+    const snap = await db.ref('users').once('value');
+    const all = snap.val() || {};
+    let found = null;
+    Object.entries(all).forEach(([id, u]) => {
+      if (found) return;
+      if (u.pinHash && u.pinSalt) {
+        if (checkPin(pin, {hash: u.pinHash, salt: u.pinSalt})) found = [id, u];
+      } else if (u.pin && String(u.pin) === String(pin)) {
+        found = [id, u];   // pre-migration fallback
+      }
+    });
+
+    if (!found) {
+      await rlRef.set({attempts: [...recent, now]});
+      throw new HttpsError('permission-denied', 'PIN not recognized.');
+    }
+    await rlRef.remove();
+
+    const [userId, user] = found;
+
+    // Send the second-factor code immediately, same call.
+    const to = toE164(user.phone);
+    if (!to) throw new HttpsError('failed-precondition', 'No valid phone number on this account.');
+    const site = user.site === 'ALL' ? 'PARF' : user.site;
+    const {from} = await requireSendableSite(site);
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await client().messages.create({
+      from, to,
+      body: `Faire Operations login code: ${code}. Expires in 5 minutes. If you did not request this, contact your Superuser.`,
+    });
+    await db.ref(`verificationCodes/${userId}`).set({
+      code, purpose: 'login', expires: Date.now() + 5 * 60 * 1000, attempts: 0,
+    });
+
+    return {userId, maskedPhone: to.slice(-4)};
+  }
+);
+
+// ---------- 8. getAppData ----------
+// Everything the app needs after a verified login, assembled server-side so
+// the client never needs read access to the users table.
+exports.getAppData = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {userId} = req.data || {};
+  if (!userId) throw new HttpsError('invalid-argument', 'Missing userId.');
+
+  const me = await getUser(userId);
+  const snap = await db.ref('/').once('value');
+  const d = snap.val() || {};
+
+  const allUsers = Object.entries(d.users || {}).map(([id, u]) => publicUser(id, u));
+  // Operations Managers only see accounts at their own site.
+  const visibleUsers = me.role === 'superadmin'
+    ? allUsers
+    : allUsers.filter((u) => u.site === me.site);
+
+  const log = Object.entries(d.activityLog || {})
+    .map(([id, e]) => Object.assign({lid: id}, e))
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    .slice(0, 300);
+
+  return {
+    me: publicUser(userId, me),
+    users: visibleUsers,
+    sites: d.sites || {},
+    activityLog: me.role === 'superadmin' ? log : log.filter((e) => e.site === me.site),
+    reportSettings: d.reportSettings || {},
+  };
+});
+
+// ---------- 9. saveUserAccount ----------
+// Account writes go through here so PINs are hashed before storage and
+// permissions are enforced server-side.
+exports.saveUserAccount = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, action, target} = req.data || {};
+  const actor = await getUser(actorId);
+  if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Not authorized.');
+  }
+
+  const usersSnap = await db.ref('users').once('value');
+  const all = usersSnap.val() || {};
+  const superCount = Object.values(all).filter((u) => u.role === 'superadmin').length;
+
+  if (action === 'create') {
+    if (target.role === 'superadmin' && actor.role !== 'superadmin') {
+      throw new HttpsError('permission-denied', 'Only a Superuser can create a Superuser.');
+    }
+    if (actor.role === 'admin' && target.site !== actor.site) {
+      throw new HttpsError('permission-denied', 'You can only add accounts at your own site.');
+    }
+    if (!/^\d{4}$/.test(String(target.pin || ''))) {
+      throw new HttpsError('invalid-argument', 'PIN must be exactly 4 digits.');
+    }
+    // Reject a duplicate PIN — two accounts sharing one would make logins ambiguous.
+    const dup = Object.values(all).some((u) =>
+      (u.pinHash && u.pinSalt && checkPin(target.pin, {hash: u.pinHash, salt: u.pinSalt})) ||
+      (u.pin && String(u.pin) === String(target.pin))
+    );
+    if (dup) throw new HttpsError('already-exists', 'That PIN is already in use.');
+
+    const rec = makePinRecord(target.pin);
+    const id = 'u' + Date.now();
+    await db.ref(`users/${id}`).set({
+      firstName: target.firstName, lastName: target.lastName,
+      phone: target.phone, email: target.email || '',
+      role: target.role, site: target.role === 'superadmin' ? 'ALL' : target.site,
+      pinHash: rec.hash, pinSalt: rec.salt,
+    });
+    await logActivity('user_changed', target.site, fullName(actor),
+      `Created account ${target.firstName} ${target.lastName}`);
+    return {id};
+  }
+
+  if (action === 'update') {
+    const existing = all[target.id];
+    if (!existing) throw new HttpsError('not-found', 'Account not found.');
+    if (actor.role === 'admin' && existing.site !== actor.site) {
+      throw new HttpsError('permission-denied', 'You can only edit accounts at your own site.');
+    }
+    if (existing.role === 'superadmin' && target.role && target.role !== 'superadmin' && superCount <= 1) {
+      throw new HttpsError('failed-precondition', 'Assign another Superuser before changing this one.');
+    }
+
+    const upd = {};
+    ['firstName', 'lastName', 'phone', 'email', 'role', 'site'].forEach((k) => {
+      if (target[k] !== undefined) upd[k] = target[k];
+    });
+    if (upd.role === 'superadmin') upd.site = 'ALL';
+    if (target.pin) {
+      if (!/^\d{4}$/.test(String(target.pin))) {
+        throw new HttpsError('invalid-argument', 'PIN must be exactly 4 digits.');
+      }
+      const rec = makePinRecord(target.pin);
+      upd.pinHash = rec.hash;
+      upd.pinSalt = rec.salt;
+      upd.pin = null;
+    }
+    await db.ref(`users/${target.id}`).update(upd);
+    await logActivity('user_changed', existing.site, fullName(actor),
+      `Updated account ${fullName(existing)}`);
+    return {ok: true};
+  }
+
+  if (action === 'delete') {
+    const existing = all[target.id];
+    if (!existing) throw new HttpsError('not-found', 'Account not found.');
+    if (actor.role === 'admin' && existing.site !== actor.site) {
+      throw new HttpsError('permission-denied', 'You can only remove accounts at your own site.');
+    }
+    if (existing.role === 'superadmin' && superCount <= 1) {
+      throw new HttpsError('failed-precondition', 'Assign another Superuser before deleting this one.');
+    }
+    await db.ref(`users/${target.id}`).remove();
+    await logActivity('user_changed', existing.site, fullName(actor),
+      `Deleted account ${fullName(existing)}`);
+    return {ok: true};
+  }
+
+  throw new HttpsError('invalid-argument', 'Unknown action.');
+});
+
+// ---------- 10. adminResetPin ----------
+exports.adminResetPin = onCall(
+  {region: REGION, secrets: [TWILIO_SID, TWILIO_TOKEN]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {actorId, targetId} = req.data || {};
+    const actor = await getUser(actorId);
+    if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Not authorized.');
+    }
+    const target = await getUser(targetId);
+    if (actor.role === 'admin' && target.site !== actor.site) {
+      throw new HttpsError('permission-denied', 'You can only reset PINs at your own site.');
+    }
+
+    const to = toE164(target.phone);
+    if (!to) throw new HttpsError('failed-precondition', 'No valid phone number on that account.');
+    const site = target.site === 'ALL' ? 'PARF' : target.site;
+    const {from} = await requireSendableSite(site);
+
+    const newPin = String(Math.floor(1000 + Math.random() * 9000));
+    const rec = makePinRecord(newPin);
+    await db.ref(`users/${targetId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null});
+    await client().messages.create({
+      from, to,
+      body: `Faire Operations: your new PIN is ${newPin}. Keep it private.`,
+    });
+    await logActivity('user_changed', target.site, fullName(actor), `PIN reset for ${fullName(target)}`);
+    return {ok: true, maskedPhone: to.slice(-4)};
+  }
+);
