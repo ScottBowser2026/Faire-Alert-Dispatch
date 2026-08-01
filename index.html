@@ -532,11 +532,12 @@ function defaultLists(){
   ];
 }
 
-async function loadAll(){
-  const snap = await db.ref('/').once('value');
-  const d = snap.val() || {};
+async function loadAll(uid){
+  const who = uid || (loggedInUser && loggedInUser.id);
+  if(!who) throw new Error('Not signed in.');
+  const d = await callFn('getAppData', {userId: who});
 
-  users = objToArr(d.users, 'id');
+  users = d.users || [];
 
   sites = SITE_CODES.map(code=>{
     const meta = (d.sites && d.sites[code] && d.sites[code].meta) || {};
@@ -568,7 +569,7 @@ async function loadAll(){
     optOutBySite[code] = objToArr(siteNode.optOuts, 'oid');
   });
 
-  activityLog = objToArr(d.activityLog, 'lid').sort((a,b)=> (b.ts||0) - (a.ts||0));
+  activityLog = d.activityLog || [];
 
   const rs = d.reportSettings || {};
   reportSettings = {
@@ -589,10 +590,20 @@ function reportSaveError(what){
 }
 
 function saveUser(u){
-  const {id, ...rest} = u;
-  return db.ref('users/' + id).set(rest).catch(e=>{ reportSaveError('account')(e); throw e; });
+  return callFn('saveUserAccount', {
+    actorId: loggedInUser && loggedInUser.id,
+    action: 'update',
+    target: {id: u.id, firstName: u.firstName, lastName: u.lastName, phone: u.phone,
+             email: u.email, role: u.role, site: u.site},
+  }).catch(e=>{ reportSaveError('account')(e); throw e; });
 }
-function deleteUser(id){ return db.ref('users/' + id).remove().catch(reportSaveError('deletion')); }
+function deleteUser(id){
+  return callFn('saveUserAccount', {
+    actorId: loggedInUser && loggedInUser.id,
+    action: 'delete',
+    target: {id},
+  }).catch(e=>{ reportSaveError('deletion')(e); throw e; });
+}
 
 function saveSiteMeta(s){
   return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status})
@@ -704,46 +715,52 @@ function maskPhone(phone){
 }
 
 function attemptLogin(){
-  const match = users.find(u=>u.pin === pinEntry);
+  const pin = pinEntry;
   pinEntry = '';
-  if(!match){
-    document.getElementById('loginError').textContent = 'PIN not recognized. Try again.';
-    renderPinDots();
-    return;
-  }
-  pendingVerifyUser = match;
-  document.getElementById('loginError').textContent = 'Sending code\u2026';
-  callFn('sendVerificationCode', {userId: match.id, purpose: 'login'})
+  renderPinDots();
+  document.getElementById('loginError').style.color = 'var(--muted)';
+  document.getElementById('loginError').textContent = 'Checking\u2026';
+  callFn('login', {pin})
     .then(res=>{
+      pendingVerifyUser = {id: res.userId};
+      document.getElementById('loginError').style.color = 'var(--safety)';
       document.getElementById('loginError').textContent = '';
       document.getElementById('pinCard').style.display = 'none';
       document.getElementById('verifyCard').style.display = 'block';
-      document.getElementById('verifySentTo').textContent = `We sent a 6-digit code to ${fullName(match)}'s phone, ${maskPhone(match.phone)}.`;
+      document.getElementById('verifySentTo').textContent = `We sent a 6-digit code to your phone, ending in ${res.maskedPhone}.`;
       document.getElementById('verifyCodeInput').value = '';
       document.getElementById('verifyError').textContent = '';
       document.getElementById('verifyDemoNote').textContent = '';
     })
     .catch(e=>{
-      console.error('verification send failed', e);
-      document.getElementById('loginError').textContent = e.message || 'Could not send the code. Try again.';
+      document.getElementById('loginError').style.color = 'var(--safety)';
+      document.getElementById('loginError').textContent = e.message || 'PIN not recognized.';
       pendingVerifyUser = null;
       renderPinDots();
     });
 }
 
 function completeLogin(){
-  const match = pendingVerifyUser;
-  loggedInUser = match;
-  currentRole = match.role;
-  currentView = 'send';
-  activeSite = match.role === 'superadmin' ? SITE_CODES[0] : match.site;
-  selected = new Set();
+  const uid = pendingVerifyUser.id;
   pendingVerifyUser = null;
   verifyCode = '';
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('appRoot').style.display = 'flex';
-  renderAll();
-
+  document.getElementById('verifyError').textContent = 'Loading\u2026';
+  loadAll(uid)
+    .then(()=>{
+      loggedInUser = users.find(u=>u.id === uid);
+      if(!loggedInUser){ throw new Error('Account not found after login.'); }
+      currentRole = loggedInUser.role;
+      currentView = 'send';
+      activeSite = loggedInUser.role === 'superadmin' ? SITE_CODES[0] : loggedInUser.site;
+      selected = new Set();
+      document.getElementById('verifyError').textContent = '';
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appRoot').style.display = 'flex';
+      renderAll();
+    })
+    .catch(e=>{
+      document.getElementById('verifyError').textContent = e.message || 'Could not load your account.';
+    });
 }
 
 function backToPinStage(){
@@ -1151,22 +1168,18 @@ function renderAdminPanelView(root){
       err.textContent = 'PIN must be exactly 4 digits.';
       return;
     }
-    if(users.some(u=>u.pin === pin)){
-      err.textContent = 'That PIN is already in use. Choose a different one.';
-      return;
-    }
-
-    const newUser = {id:'u'+Date.now(), firstName, lastName, phone, email, role, site, pin};
-    saveUser(newUser)
+    callFn('saveUserAccount', {
+      actorId: loggedInUser.id,
+      action: 'create',
+      target: {firstName, lastName, phone, email, role, site, pin},
+    })
+      .then(()=> loadAll())
       .then(()=>{
-        users.push(newUser);
-        logActivity('user_changed', site, `Created account ${firstName} ${lastName} (${roleLabel(role)})`);
         showToast(`${firstName} ${lastName} added as ${roleLabel(role)}`, false);
         renderAll();
       })
       .catch(e=>{
-        console.error('saveUser failed', e);
-        err.textContent = 'Could not save: ' + (e.message || 'database error');
+        err.textContent = e.message || 'Could not save the account.';
       });
   };
 }
@@ -1216,7 +1229,7 @@ function renderUsersTable(){
       <td><input class="phone-input" data-id="${u.id}" value="${u.phone}" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
       <td><input class="email-input" data-id="${u.id}" value="${u.email || ''}" placeholder="none set" ${dis} style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--sans);" /></td>
       <td>${siteCell}</td>
-      <td><input class="pin-cell-input" data-id="${u.id}" value="${u.pin}" maxlength="4" ${dis} style="width:56px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
+      <td><input class="pin-cell-input" data-id="${u.id}" value="" placeholder="\u2022\u2022\u2022\u2022" maxlength="4" ${dis} title="PINs are encrypted and cannot be displayed. Type a new 4-digit PIN to change it." style="width:56px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
       <td>
         <span class="role-badge" id="roleIcon-${u.id}">${roleIcon(u.role)}</span>
         <select class="role-select" data-id="${u.id}" ${dis}>
@@ -1277,13 +1290,13 @@ function renderUsersTable(){
   userRowsQuery('.reset-pin-link').forEach(btn=>{
     btn.onclick = ()=>{
       const u = users.find(x=>x.id===btn.dataset.id);
-      const newPin = String(Math.floor(1000 + Math.random()*9000));
-      u.pin = newPin;
-      console.log(`[PIN reset] New PIN ${newPin} would be texted to ${fullName(u)} at ${u.phone}`);
-      saveUser(u);
-      logActivity('user_changed', u.site, `PIN reset for ${fullName(u)}`);
-      renderUsersTable();
-      showToast(`New PIN texted to ${fullName(u)} at ${maskPhone(u.phone)}`, false);
+      callFn('adminResetPin', {actorId: loggedInUser.id, targetId: u.id})
+        .then(res=>{
+          showToast(`New PIN texted to ${fullName(u)}, ending in ${res.maskedPhone}`, false);
+        })
+        .catch(e=>{
+          showToast(e.message || 'Could not reset that PIN.', true);
+        });
     };
   });
   userRowsQuery('.role-select').forEach(sel=>{
@@ -1320,8 +1333,12 @@ function renderUsersTable(){
   userRowsQuery('.pin-cell-input').forEach(inp=>{
     inp.onchange = ()=>{
       const u = users.find(x=>x.id===inp.dataset.id);
-      if(/^\d{4}$/.test(inp.value.trim())){ u.pin = inp.value.trim(); saveUser(u); }
-      else { inp.value = u.pin; }
+      const v = inp.value.trim();
+      if(/^\d{4}$/.test(v)){
+        callFn('saveUserAccount', {actorId: loggedInUser.id, action:'update', target:{id:u.id, pin:v}})
+          .then(()=>{ showToast('PIN updated for ' + fullName(u), false); inp.value=''; inp.placeholder='••••'; })
+          .catch(e=> showToast(e.message || 'Could not update the PIN.', true));
+      } else { inp.value = ''; }
     };
   });
   userRowsQuery('.remove-link').forEach(btn=>{
@@ -2081,12 +2098,6 @@ async function boot(){
   document.getElementById('keypad').style.pointerEvents = 'none';
   try {
     await firebase.auth().signInAnonymously();
-    await loadAll();
-    if(users.length === 0){
-      setBootState('No accounts found', true);
-      document.getElementById('loginError').textContent = 'The database has no user records. Check the Firebase seed import.';
-      return;
-    }
     document.getElementById('keypad').style.opacity = '';
     document.getElementById('keypad').style.pointerEvents = '';
     setBootState('Enter your PIN');
