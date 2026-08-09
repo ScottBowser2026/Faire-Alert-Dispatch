@@ -65,6 +65,7 @@ function publicUser(id, u) {
     email: u.email || '',
     role: u.role,
     site: u.site,
+    mustChangePin: !!u.mustChangePin,
   };
 }
 
@@ -336,7 +337,7 @@ exports.resetPin = onCall(
 
     const newPin = String(Math.floor(1000 + Math.random() * 9000));
     const rec = makePinRecord(newPin);
-    await db.ref(`users/${userId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null});
+    await db.ref(`users/${userId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null, mustChangePin: true});
     await client().messages.create({
       from, to,
       body: `Faire Operations: your new PIN is ${newPin}. Keep it private. If you did not request this, contact your Superuser.`,
@@ -493,7 +494,7 @@ exports.login = onCall(
       code, purpose: 'login', expires: Date.now() + 5 * 60 * 1000, attempts: 0,
     });
 
-    return {userId, maskedPhone: to.slice(-4)};
+    return {userId, maskedPhone: to.slice(-4), mustChangePin: !!user.mustChangePin};
   }
 );
 
@@ -568,6 +569,7 @@ exports.saveUserAccount = onCall({region: REGION}, async (req) => {
       phone: target.phone, email: target.email || '',
       role: target.role, site: target.role === 'superadmin' ? 'ALL' : target.site,
       pinHash: rec.hash, pinSalt: rec.salt,
+      mustChangePin: true,
     });
     await logActivity('user_changed', target.site, fullName(actor),
       `Created account ${target.firstName} ${target.lastName}`);
@@ -650,7 +652,7 @@ exports.adminResetPin = onCall(
 
     const newPin = String(Math.floor(1000 + Math.random() * 9000));
     const rec = makePinRecord(newPin);
-    await db.ref(`users/${targetId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null});
+    await db.ref(`users/${targetId}`).update({pinHash: rec.hash, pinSalt: rec.salt, pin: null, mustChangePin: true});
     await client().messages.create({
       from, to,
       body: `Faire Operations: your new PIN is ${newPin}. Keep it private.`,
@@ -727,4 +729,71 @@ exports.syncManagers = onCall({region: REGION}, async (req) => {
       `Synced ${total} staff account(s) onto Managers list(s)`);
   }
   return {results, total};
+});
+
+// ---------- 12. changePin ----------
+// Self-service PIN change. The PIN is not just a login credential here — it is
+// re-entered to dispatch an alert, so an easily guessed one is a real risk on
+// a session someone left open.
+const WEAK_PINS = new Set([
+  '0000','1111','2222','3333','4444','5555','6666','7777','8888','9999',
+  '1234','2345','3456','4567','5678','6789','7890',
+  '4321','5432','6543','7654','8765','9876','0987',
+  '1212','2121','1313','6969','2580','0852','1004','2000','1122','1313',
+]);
+
+function pinProblem(pin) {
+  if (!/^\d{4}$/.test(String(pin))) return 'PIN must be exactly 4 digits.';
+  if (WEAK_PINS.has(String(pin))) return 'That PIN is too easy to guess. Choose another.';
+  const d = String(pin);
+  if (d[0] === d[1] && d[1] === d[2] && d[2] === d[3]) return 'That PIN is too easy to guess. Choose another.';
+  // Reject a birth year, which is the other common pick.
+  const asNum = parseInt(d, 10);
+  if (asNum >= 1940 && asNum <= 2026) return 'Avoid using a year. Choose another PIN.';
+  return null;
+}
+
+exports.changePin = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {userId, currentPin, newPin} = req.data || {};
+  if (!userId) throw new HttpsError('invalid-argument', 'Missing userId.');
+
+  const user = await getUser(userId);
+
+  // Someone changing a PIN they were just issued has already proven identity
+  // through the SMS code, so the current PIN is not demanded again.
+  if (!user.mustChangePin) {
+    const ok = (user.pinHash && user.pinSalt)
+      ? checkPin(currentPin, {hash: user.pinHash, salt: user.pinSalt})
+      : (user.pin && String(user.pin) === String(currentPin));
+    if (!ok) throw new HttpsError('permission-denied', 'Current PIN is incorrect.');
+  }
+
+  const problem = pinProblem(newPin);
+  if (problem) throw new HttpsError('invalid-argument', problem);
+
+  if (String(newPin) === String(currentPin)) {
+    throw new HttpsError('invalid-argument', 'New PIN must be different from the current one.');
+  }
+
+  // A PIN already in use would make logins ambiguous, since login matches on PIN alone.
+  const allSnap = await db.ref('users').once('value');
+  const all = allSnap.val() || {};
+  const taken = Object.entries(all).some(([id, u]) => {
+    if (id === userId) return false;
+    if (u.pinHash && u.pinSalt) return checkPin(newPin, {hash: u.pinHash, salt: u.pinSalt});
+    return u.pin && String(u.pin) === String(newPin);
+  });
+  if (taken) throw new HttpsError('already-exists', 'That PIN is already in use. Choose another.');
+
+  const rec = makePinRecord(newPin);
+  await db.ref(`users/${userId}`).update({
+    pinHash: rec.hash,
+    pinSalt: rec.salt,
+    pin: null,
+    mustChangePin: null,
+  });
+
+  await logActivity('user_changed', user.site, fullName(user), `${fullName(user)} changed their own PIN`);
+  return {ok: true};
 });
