@@ -1,4 +1,5 @@
 const {onCall, onRequest, HttpsError} = require('firebase-functions/v2/https');
+const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {defineSecret} = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const twilio = require('twilio');
@@ -803,3 +804,150 @@ exports.changePin = onCall({region: REGION}, async (req) => {
   await logActivity('user_changed', user.site, fullName(user), `${fullName(user)} changed their own PIN`);
   return {ok: true};
 });
+
+// ---------- 13. Recipient list review reminders ----------
+// Emailed to each site's Operations Managers, Thursday and Friday mornings.
+// Superusers are not included — this is a site-level housekeeping task.
+
+const EMAILJS_PRIVATE = defineSecret('EMAILJS_PRIVATE');
+
+const EMAILJS_SERVICE  = 'service_inri5q5';
+const EMAILJS_TEMPLATE = 'template_56axz1i';
+const EMAILJS_PUBLIC   = 'sB7w0MyBj_u6ayu_0';
+
+async function sendEmail(toEmail, toName, subject, message) {
+  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE,
+      template_id: EMAILJS_TEMPLATE,
+      user_id: EMAILJS_PUBLIC,
+      accessToken: EMAILJS_PRIVATE.value(),
+      template_params: {
+        to_email: toEmail,
+        name: toName,
+        email: toEmail,
+        subject,
+        message,
+        time: new Date().toLocaleString('en-US', {timeZone: 'America/New_York'}),
+      },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`EmailJS ${res.status}: ${body}`);
+  }
+  return true;
+}
+
+const STALE_DAYS = 7;
+
+async function buildReviewReminder(site) {
+  const [recSnap, metaSnap] = await Promise.all([
+    db.ref(`sites/${site}/recipients`).once('value'),
+    db.ref(`sites/${site}/meta`).once('value'),
+  ]);
+  const rec = recSnap.val() || {};
+  const meta = metaSnap.val() || {};
+  const now = Date.now();
+
+  const lines = [];
+  const stale = [];
+  Object.values(rec).forEach((r) => {
+    const members = Object.values(r.members || {});
+    const active = members.filter((m) => m.active !== false).length;
+    const days = r.lastReviewed ? Math.floor((now - r.lastReviewed) / 86400000) : null;
+    const isStale = days === null || days >= STALE_DAYS;
+    if (isStale) stale.push(r.name);
+    lines.push(`  ${r.name}: ${active} active of ${members.length}` +
+      (days === null ? '  — never reviewed' : `  — reviewed ${days} day(s) ago`) +
+      (isStale ? '  ** REVIEW DUE **' : ''));
+  });
+
+  const siteName = meta.name || site;
+  const subject = stale.length
+    ? `${site} recipient list review due before this weekend`
+    : `${site} recipient lists are current`;
+
+  const message = [
+    `${siteName} — recipient list review`,
+    '',
+    stale.length
+      ? `The following list(s) have not been reviewed in ${STALE_DAYS} days: ${stale.join(', ')}.`
+      : 'All lists have been reviewed recently. No action needed.',
+    '',
+    'Current lists:',
+    ...lines,
+    '',
+    'Review and update at alerts.lancelotbiz.com before the weekend.',
+    'Remove anyone no longer working, and mark seasonal staff inactive rather than deleting them.',
+  ].join('\n');
+
+  return {subject, message, staleCount: stale.length};
+}
+
+async function runReviewReminders(siteFilter) {
+  const usersSnap = await db.ref('users').once('value');
+  const users = usersSnap.val() || {};
+  const sitesSnap = await db.ref('sites').once('value');
+  const sites = sitesSnap.val() || {};
+
+  const codes = siteFilter ? [siteFilter] : Object.keys(sites);
+  const results = {};
+
+  for (const site of codes) {
+    // Operations Managers at this site only. Superusers are excluded by design.
+    const managers = Object.values(users).filter((u) =>
+      u.role === 'admin' && u.site === site && u.email
+    );
+    if (!managers.length) { results[site] = {sent: 0, reason: 'no managers with an email'}; continue; }
+
+    const {subject, message} = await buildReviewReminder(site);
+    let sent = 0;
+    const errors = [];
+    for (const m of managers) {
+      try {
+        await sendEmail(m.email, `${m.firstName} ${m.lastName}`.trim(), subject, message);
+        sent++;
+      } catch (e) {
+        errors.push(`${m.email}: ${e.message}`);
+      }
+    }
+    results[site] = {sent, errors};
+    if (sent) {
+      await logActivity('list_changed', site, 'system',
+        `Review reminder emailed to ${sent} Operations Manager(s)`);
+    }
+  }
+  return results;
+}
+
+// Manual trigger from the Recipients tab
+exports.sendReviewReminder = onCall(
+  {region: REGION, secrets: [EMAILJS_PRIVATE]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {actorId, site} = req.data || {};
+    const actor = await getUser(actorId);
+    if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Not authorized.');
+    }
+    const target = actor.role === 'superadmin' ? (site || null) : actor.site;
+    return await runReviewReminders(target);
+  }
+);
+
+// Scheduled: Thursday and Friday at 8:00 AM Eastern
+exports.scheduledReviewReminder = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 8 * * 4,5',
+    timeZone: 'America/New_York',
+    secrets: [EMAILJS_PRIVATE],
+  },
+  async () => {
+    const results = await runReviewReminders(null);
+    console.log('Scheduled review reminders:', JSON.stringify(results));
+  }
+);
