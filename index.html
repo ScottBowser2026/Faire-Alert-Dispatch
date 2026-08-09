@@ -334,6 +334,18 @@
     </div>
   </div>
 
+  <div class="login-card" id="changePinCard" style="display:none;">
+    <div class="login-brand">Faire Operations</div>
+    <div class="login-title" id="changePinTitle">Set your PIN</div>
+    <div class="rb-label" id="changePinWhy" style="text-align:left; margin-bottom:10px;"></div>
+    <input type="password" id="currentPinInput" class="forgot-pin-input" placeholder="Current PIN" maxlength="4" inputmode="numeric" style="text-align:center; letter-spacing:6px; font-family:var(--mono);" />
+    <input type="password" id="newPinInput" class="forgot-pin-input" placeholder="New 4-digit PIN" maxlength="4" inputmode="numeric" style="text-align:center; letter-spacing:6px; font-family:var(--mono);" />
+    <input type="password" id="confirmNewPinInput" class="forgot-pin-input" placeholder="Confirm new PIN" maxlength="4" inputmode="numeric" style="text-align:center; letter-spacing:6px; font-family:var(--mono);" />
+    <button class="add-btn" id="savePinBtn" style="width:100%; margin-top:10px;">Save PIN</button>
+    <div class="login-error" id="changePinError"></div>
+    <div class="import-picker-note" style="margin-top:8px;">Avoid repeated digits, sequences, and years.</div>
+  </div>
+
   <div class="login-card" id="verifyCard" style="display:none;">
     <div class="login-brand">Faire Operations</div>
     <div class="login-title">Verify it's you</div>
@@ -706,6 +718,7 @@ function pressDigit(n){
 }
 
 let pendingVerifyUser = null;
+let pendingPinChangeUser = null;
 let verifyCode = '';
 
 function notifyAdminsOfLogin(user, site){
@@ -730,7 +743,7 @@ function attemptLogin(){
   document.getElementById('loginError').textContent = 'Checking\u2026';
   callFn('login', {pin})
     .then(res=>{
-      pendingVerifyUser = {id: res.userId};
+      pendingVerifyUser = {id: res.userId, mustChangePin: res.mustChangePin};
       document.getElementById('loginError').style.color = 'var(--safety)';
       document.getElementById('loginError').textContent = '';
       document.getElementById('pinCard').style.display = 'none';
@@ -750,7 +763,21 @@ function attemptLogin(){
 
 function completeLogin(){
   const uid = pendingVerifyUser.id;
+  const forced = pendingVerifyUser.mustChangePin;
   pendingVerifyUser = null;
+  if(forced){
+    pendingPinChangeUser = uid;
+    document.getElementById('verifyCard').style.display = 'none';
+    document.getElementById('changePinCard').style.display = 'block';
+    document.getElementById('changePinTitle').textContent = 'Set your PIN';
+    document.getElementById('changePinWhy').textContent =
+      'This account still uses its issued PIN. Choose your own before continuing.';
+    document.getElementById('currentPinInput').style.display = 'none';
+    document.getElementById('newPinInput').value = '';
+    document.getElementById('confirmNewPinInput').value = '';
+    document.getElementById('changePinError').textContent = '';
+    return;
+  }
   verifyCode = '';
   document.getElementById('verifyError').textContent = 'Loading\u2026';
   loadAll(uid)
@@ -773,7 +800,9 @@ function completeLogin(){
 
 function backToPinStage(){
   pendingVerifyUser = null;
+  pendingPinChangeUser = null;
   verifyCode = '';
+  document.getElementById('changePinCard').style.display = 'none';
   document.getElementById('verifyCard').style.display = 'none';
   document.getElementById('pinCard').style.display = 'block';
   pinEntry = '';
@@ -787,6 +816,9 @@ function logOut(){
   pinEntry = '';
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('changePinCard').style.display = 'none';
+  document.getElementById('verifyCard').style.display = 'none';
+  document.getElementById('pinCard').style.display = 'block';
   document.getElementById('loginError').textContent = '';
   renderPinDots();
 }
@@ -799,9 +831,13 @@ function renderSignedInBox(){
       <span class="who">${fullName(loggedInUser)}</span>
       <span class="role role-badge">${roleIcon(loggedInUser.role)}${roleLabel(loggedInUser.role)}</span>
     </div>
-    <button class="switch-user-btn" id="switchUserBtn">Log out</button>
+    <div style="display:flex; flex-direction:column; gap:2px; align-items:flex-end;">
+      <button class="switch-user-btn" id="changePinBtn">Change PIN</button>
+      <button class="switch-user-btn" id="switchUserBtn">Log out</button>
+    </div>
   `;
   document.getElementById('switchUserBtn').onclick = logOut;
+  document.getElementById('changePinBtn').onclick = openChangePin;
 }
 
 function siteName(code){
@@ -2279,6 +2315,66 @@ document.getElementById('verifyCodeBtn').onclick = ()=>{
     });
 };
 document.getElementById('verifyBackBtn').onclick = backToPinStage;
+
+function openChangePin(){
+  pendingPinChangeUser = loggedInUser.id;
+  document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('pinCard').style.display = 'none';
+  document.getElementById('verifyCard').style.display = 'none';
+  document.getElementById('changePinCard').style.display = 'block';
+  document.getElementById('changePinTitle').textContent = 'Change your PIN';
+  document.getElementById('changePinWhy').textContent = 'Enter your current PIN, then choose a new one.';
+  document.getElementById('currentPinInput').style.display = '';
+  document.getElementById('currentPinInput').value = '';
+  document.getElementById('newPinInput').value = '';
+  document.getElementById('confirmNewPinInput').value = '';
+  document.getElementById('changePinError').textContent = '';
+}
+
+document.getElementById('savePinBtn').onclick = ()=>{
+  const err = document.getElementById('changePinError');
+  const btn = document.getElementById('savePinBtn');
+  const currentEl = document.getElementById('currentPinInput');
+  const cur = currentEl.style.display === 'none' ? '' : currentEl.value.trim();
+  const nw  = document.getElementById('newPinInput').value.trim();
+  const cf  = document.getElementById('confirmNewPinInput').value.trim();
+
+  err.style.color = 'var(--safety)';
+  if(!/^\d{4}$/.test(nw)){ err.textContent = 'New PIN must be exactly 4 digits.'; return; }
+  if(nw !== cf){ err.textContent = 'The two new PINs do not match.'; return; }
+
+  btn.disabled = true;
+  err.style.color = 'var(--muted)';
+  err.textContent = 'Saving\u2026';
+
+  callFn('changePin', {userId: pendingPinChangeUser, currentPin: cur, newPin: nw})
+    .then(()=>{
+      btn.disabled = false;
+      const uid = pendingPinChangeUser;
+      pendingPinChangeUser = null;
+      err.style.color = 'var(--clear)';
+      err.textContent = 'PIN updated.';
+      return loadAll(uid).then(()=>{
+        loggedInUser = users.find(u=>u.id === uid);
+        currentRole = loggedInUser.role;
+        currentView = 'send';
+        activeSite = loggedInUser.role === 'superadmin' ? SITE_CODES[0] : loggedInUser.site;
+        selected = new Set();
+        document.getElementById('changePinCard').style.display = 'none';
+        document.getElementById('pinCard').style.display = 'block';
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('appRoot').style.display = 'flex';
+        renderAll();
+        showToast('PIN updated.', false);
+      });
+    })
+    .catch(e=>{
+      btn.disabled = false;
+      err.style.color = 'var(--safety)';
+      err.textContent = e.message || 'Could not change the PIN.';
+    });
+};
 </script>
 </body>
 </html>
