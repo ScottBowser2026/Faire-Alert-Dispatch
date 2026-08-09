@@ -55,6 +55,12 @@
     font-size:12px; cursor:pointer; font-family:var(--sans);
   }
   .all-btn:hover{color:var(--text); border-color:var(--muted);}
+  .all-btn.partial{color:var(--clear); border-color:var(--clear); border-style:solid;}
+  .all-btn.all-selected{
+    color:#fff; background:var(--safety); border-color:var(--safety); border-style:solid;
+    font-weight:700;
+  }
+  .all-btn.all-selected:hover{color:#fff; border-color:var(--safety);}
 
   .view-locked{
     font-size:11px; color:var(--muted); padding:8px 12px; background:var(--panel-2);
@@ -526,6 +532,8 @@ function objToArr(obj, idKey){
 function defaultLists(){
   return [
     {id:'managers', name:'Managers'},
+    {id:'mt-hope-staff', name:'Mt Hope Staff'},
+    {id:'security', name:'Security Personnel'},
     {id:'vendors-permanent', name:'Vendors \u2014 Permanent'},
     {id:'vendors-guest', name:'Vendors \u2014 Guest'},
     {id:'performers', name:'Performers'},
@@ -559,7 +567,7 @@ async function loadAll(uid){
       return {
         id: def.id,
         name: r.name || def.name,
-        members: objToArr(r.members, 'mid'),
+        members: objToArr(r.members, 'mid').map(m=>Object.assign({active:true}, m)),
         lastReviewed: r.lastReviewed || null,
         reviewedBy: r.reviewedBy || null,
         fileName: r.fileName || null,
@@ -614,7 +622,7 @@ function saveList(site, r){
   const members = {};
   r.members.forEach((m, i)=>{
     const key = m.mid || ('m' + Date.now() + '_' + i);
-    members[key] = {name: m.name, phone: m.phone};
+    members[key] = {name: m.name, phone: m.phone, active: m.active !== false};
   });
   return db.ref(`sites/${site}/recipients/${r.id}`).set({
     name: r.name,
@@ -848,7 +856,17 @@ function renderSidebar(){
   root.innerHTML = `
     <div class="section-label">Send to</div>
     <div class="recip-list" id="recipList"></div>
-    ${canManage ? '<button class="all-btn" id="allBtn">Select all lists</button>' : '<div class="view-locked">View only \u2014 Admins manage recipient lists and send alerts.</div>'}
+    ${canManage ? (()=>{
+      const total = recipients.length;
+      const allOn = selected.size === total && total > 0;
+      const cls = allOn ? 'all-btn all-selected' : (selected.size ? 'all-btn partial' : 'all-btn');
+      const headcount = recipients.filter(r=>selected.has(r.id))
+        .reduce((n,r)=> n + r.members.filter(m=>m.active !== false).length, 0);
+      const label = allOn
+        ? `ALL LISTS SELECTED \u2014 ${headcount} recipients`
+        : (selected.size ? `${selected.size} of ${total} lists \u00b7 ${headcount} recipients` : 'Select all lists');
+      return `<button class="${cls}" id="allBtn">${label}</button>`;
+    })() : '<div class="view-locked">View only \u2014 Admins manage recipient lists and send alerts.</div>'}
     ${canManage ? `
       <div class="section-label">Import CSV</div>
       <div class="import-picker">
@@ -857,7 +875,10 @@ function renderSidebar(){
         </select>
         <button class="import-choose-btn" id="importChooseBtn">Choose File</button>
       </div>
-      <div class="import-picker-note" id="importPickerNote">Pick the list above, then choose the CSV for it.</div>
+      <div class="import-picker-note" id="importPickerNote">
+        Pick the list above, then choose the CSV for it.
+        <button class="import-link" id="downloadTemplateBtn" style="display:block; margin-top:4px;">Download template</button>
+      </div>
     ` : ''}
   `;
   renderRecipients();
@@ -878,6 +899,23 @@ function renderSidebar(){
       fileInput.value = '';
     };
     document.getElementById('importChooseBtn').onclick = ()=> fileInput.click();
+
+    document.getElementById('downloadTemplateBtn').onclick = ()=>{
+      const targetId = document.getElementById('importTargetSelect').value;
+      const list = recipients.find(r=>r.id===targetId);
+      const rows = [
+        'Name,Phone,Active',
+        'Jane Smith,717-555-0100,Yes',
+        'John Doe,717-555-0101,Yes',
+        'Former Staff,717-555-0102,No',
+      ].join('\n');
+      const blob = new Blob([rows], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${activeSite}-${(list ? list.name : 'list').replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase()}-template.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
   }
 }
 
@@ -895,7 +933,7 @@ function renderRecipients(){
     el.className = 'recip-item' + (selected.has(r.id) ? ' on' : '');
     el.innerHTML = `<input type="checkbox" ${selected.has(r.id)?'checked':''} ${canManage?'':'disabled'} />
       <span class="recip-name">${r.name}</span>
-      <span class="recip-count">${r.members.length}</span>`;
+      <span class="recip-count">${r.members.filter(m=>m.active!==false).length}</span>`;
     if(canManage){
       el.onclick = ()=>{
         selected.has(r.id) ? selected.delete(r.id) : selected.add(r.id);
@@ -978,7 +1016,13 @@ function handleCsvImport(id, file){
       const name = nameIdx !== -1 ? (row[nameIdx] || '').trim() : '';
       if(digits.length < 10){ badRows.push(i+2); return; }
       if(optOutDigits.includes(digits)){ optedOutRows.push(i+2); return; }
-      members.push({name: name || '(no name)', phone: phoneRaw});
+      const activeIdx = header.findIndex(h=>h.includes('active') || h.includes('status'));
+      let isActive = true;
+      if(activeIdx !== -1){
+        const v = String(row[activeIdx] || '').trim().toLowerCase();
+        isActive = !(v === 'no' || v === 'false' || v === 'inactive' || v === '0');
+      }
+      members.push({name: name || '(no name)', phone: phoneRaw, active: isActive});
     });
     r.members = members;
     r.fileName = file.name;
@@ -1479,22 +1523,47 @@ function renderRecipientsView(root){
     <h1>Recipients \u2014 ${activeSite}</h1>
     <div class="sub">Add or remove individual people, and confirm each list is current before the weekend.</div>
     <button class="all-btn" id="reviewReminderBtn" style="width:auto; padding:8px 14px; margin-bottom:20px;">Send review reminder to Operations Managers</button>
+    <button class="all-btn" id="syncManagersBtn" style="width:auto; padding:8px 14px; margin-bottom:20px; margin-left:8px;">Sync staff accounts to Managers list</button>
+    <div class="import-picker-note" id="syncResult" style="margin-bottom:16px;"></div>
     <div id="listBlocks"></div>
   `;
   document.getElementById('reviewReminderBtn').onclick = sendWeeklyReviewReminder;
+
+  document.getElementById('syncManagersBtn').onclick = ()=>{
+    const btn = document.getElementById('syncManagersBtn');
+    const out = document.getElementById('syncResult');
+    btn.disabled = true;
+    out.style.color = 'var(--muted)';
+    out.textContent = 'Syncing\u2026';
+    callFn('syncManagers', {actorId: loggedInUser.id, site: activeSite})
+      .then(res=>{
+        btn.disabled = false;
+        out.style.color = 'var(--clear)';
+        out.textContent = res.total
+          ? `Added ${res.total} staff account(s) to the Managers list.`
+          : 'All staff accounts are already on the Managers list.';
+        return loadAll();
+      })
+      .then(()=> renderAll())
+      .catch(e=>{
+        btn.disabled = false;
+        out.style.color = 'var(--safety)';
+        out.textContent = e.message || 'Sync failed.';
+      });
+  };
   const holder = document.getElementById('listBlocks');
   recipients.forEach(r=>{
     const status = reviewStatus(r);
     const sec = document.createElement('div');
     sec.className = 'admin-section';
     sec.innerHTML = `
-      <h3>${r.name} <span style="color:var(--muted); font-weight:400;">\u00b7 ${r.members.length}</span></h3>
+      <h3>${r.name} <span style="color:var(--muted); font-weight:400;">\u00b7 ${r.members.filter(m=>m.active!==false).length} active of ${r.members.length}</span></h3>
       <div class="import-picker-note" style="color:${status.stale ? 'var(--weather)' : 'var(--muted)'}; margin-bottom:10px;">
         ${status.text}
         <button class="edit-link" data-review="${r.id}" style="margin-left:10px;">Mark reviewed</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>Name</th><th>Phone</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
         <tbody id="members-${r.id}"></tbody>
       </table>
       <div class="add-user-row">
@@ -1507,11 +1576,16 @@ function renderRecipientsView(root){
 
     const tbody = sec.querySelector(`#members-${r.id}`);
     if(r.members.length === 0){
-      tbody.innerHTML = `<tr><td colspan="3" style="color:var(--muted); text-align:center; padding:14px 0;">No one on this list yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted); text-align:center; padding:14px 0;">No one on this list yet.</td></tr>`;
     } else {
       r.members.forEach((m, idx)=>{
+        const isActive = m.active !== false;
         const tr = document.createElement('tr');
+        if(!isActive){ tr.style.opacity = '.5'; }
         tr.innerHTML = `<td>${m.name}</td><td>${m.phone}</td>
+          <td><button class="active-toggle" data-act="${r.id}" data-idx="${idx}"
+              style="background:none; border:1px solid ${isActive?'var(--clear)':'var(--line)'}; color:${isActive?'var(--clear)':'var(--muted)'}; border-radius:100px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:var(--sans);">
+              ${isActive ? 'Active' : 'Inactive'}</button></td>
           <td><button class="remove-link" data-rm="${r.id}" data-idx="${idx}">Remove</button></td>`;
         tbody.appendChild(tr);
       });
@@ -1533,8 +1607,19 @@ function renderRecipientsView(root){
         showToast(`${name} has opted out at ${activeSite} and can't be added.`, true);
         return;
       }
-      r.members.push({name, phone});
+      r.members.push({name, phone, active:true});
       logActivity('list_changed', activeSite, `Added ${name} to ${r.name}`);
+      saveList(activeSite, r);
+      renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-act]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.act);
+      const m = r.members[Number(btn.dataset.idx)];
+      m.active = (m.active === false);
+      logActivity('list_changed', activeSite, `${m.name} set ${m.active ? 'active' : 'inactive'} on ${r.name}`);
       saveList(activeSite, r);
       renderAll();
     };
@@ -1869,7 +1954,7 @@ function openModal(alertDef){
     window.alert('Select at least one recipient list first.');
     return;
   }
-  const emptyLists = recipients.filter(r=>selected.has(r.id) && r.members.length === 0);
+  const emptyLists = recipients.filter(r=>selected.has(r.id) && r.members.filter(m=>m.active!==false).length === 0);
   if(emptyLists.length === selected.size){
     window.alert('The selected list' + (selected.size>1?'s have':' has') + ' no one on ' + (selected.size>1?'them':'it') + ' yet. Add recipients before sending.');
     return;
@@ -1894,7 +1979,7 @@ function openModal(alertDef){
   recipients.filter(r=>selected.has(r.id)).forEach(r=>{
     const p = document.createElement('span');
     p.className = 'to-pill';
-    p.textContent = r.name + ' (' + r.members.length + ')';
+    p.textContent = r.name + ' (' + r.members.filter(m=>m.active!==false).length + ')';
     toRow.appendChild(p);
   });
 
@@ -1994,12 +2079,6 @@ document.getElementById('confirmBtn').onclick = ()=>{
 
 
 
-  const enteredPin = document.getElementById('confirmPinInput').value.trim();
-  if(!loggedInUser || enteredPin !== loggedInUser.pin){
-    document.getElementById('pinConfirmError').textContent = 'Incorrect PIN. Re-enter your PIN to send.';
-    document.getElementById('confirmPinInput').value = '';
-    return;
-  }
 
   const recipients = recipientsBySite[activeSite];
   const chosen = recipients.filter(r=>selected.has(r.id));
@@ -2015,6 +2094,14 @@ document.getElementById('confirmBtn').onclick = ()=>{
   document.getElementById('pinConfirmError').style.color = 'var(--muted)';
   document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
 
+  const enteredPin = document.getElementById('confirmPinInput').value.trim();
+  if(!/^\d{4}$/.test(enteredPin)){
+    btn.disabled = false;
+    document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+    document.getElementById('pinConfirmError').textContent = 'Enter your 4-digit PIN to send.';
+    return;
+  }
+
   const proceed = isCritical
     ? callFn('verifyCode', {userId: loggedInUser.id, code: enteredAuth})
     : Promise.resolve();
@@ -2022,6 +2109,7 @@ document.getElementById('confirmBtn').onclick = ()=>{
   proceed
     .then(()=> callFn('sendAlert', {
       userId: loggedInUser.id,
+      pin: enteredPin,
       site,
       listIds: chosen.map(r=>r.id),
       message: messageText,
