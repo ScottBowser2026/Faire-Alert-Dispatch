@@ -129,12 +129,21 @@ exports.sendAlert = onCall(
   async (req) => {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
 
-    const {userId, site, listIds, message, alertName, category, isDrill} = req.data || {};
+    const {userId, pin, site, listIds, message, alertName, category, isDrill} = req.data || {};
     if (!userId || !site || !Array.isArray(listIds) || !listIds.length || !message) {
       throw new HttpsError('invalid-argument', 'Missing required fields.');
     }
 
     const user = await getUser(userId);
+
+    // Re-verify the sender's PIN at the moment of dispatch. This is what stops
+    // someone using an unattended session that is already signed in.
+    const pinOk = (user.pinHash && user.pinSalt)
+      ? checkPin(pin, {hash: user.pinHash, salt: user.pinSalt})
+      : (user.pin && String(user.pin) === String(pin));
+    if (!pinOk) {
+      throw new HttpsError('permission-denied', 'Incorrect PIN. Re-enter your PIN to send.');
+    }
     if (user.role !== 'superadmin' && user.role !== 'admin') {
       throw new HttpsError('permission-denied', 'Your account cannot send alerts.');
     }
@@ -160,6 +169,7 @@ exports.sendAlert = onCall(
     listIds.forEach((lid) => {
       const members = (recipients[lid] && recipients[lid].members) || {};
       Object.values(members).forEach((m) => {
+        if (m.active === false) return;   // inactive recipients are skipped
         const e = toE164(m.phone);
         if (e && !optedOut.has(e)) numbers.add(e);
       });
@@ -561,6 +571,12 @@ exports.saveUserAccount = onCall({region: REGION}, async (req) => {
     });
     await logActivity('user_changed', target.site, fullName(actor),
       `Created account ${target.firstName} ${target.lastName}`);
+    // Put the new staff member on their site's Managers recipient list.
+    try {
+      const s = target.role === 'superadmin' ? null : target.site;
+      if (s) await syncManagersForSite(s);
+      else for (const code of ['PARF','SRF','KRF','GARF']) await syncManagersForSite(code);
+    } catch (e) { console.warn('manager sync failed:', e.message); }
     return {id};
   }
 
@@ -643,3 +659,72 @@ exports.adminResetPin = onCall(
     return {ok: true, maskedPhone: to.slice(-4)};
   }
 );
+
+// ---------- 11. syncManagersToList ----------
+// Puts every Operations Manager and Superuser onto their site's Managers
+// recipient list. Additive only — anyone added by hand stays, and an entry
+// marked inactive is left inactive rather than being switched back on.
+async function syncManagersForSite(site) {
+  const [usersSnap, listSnap] = await Promise.all([
+    db.ref('users').once('value'),
+    db.ref(`sites/${site}/recipients/managers`).once('value'),
+  ]);
+  const users = usersSnap.val() || {};
+  const list = listSnap.val() || {};
+  const members = list.members || {};
+
+  const existing = new Set(
+    Object.values(members).map((m) => toE164(m.phone)).filter(Boolean)
+  );
+
+  const staff = Object.values(users).filter((u) =>
+    (u.role === 'superadmin' || (u.role === 'admin' && u.site === site))
+  );
+
+  const updates = {};
+  let added = 0;
+  staff.forEach((u) => {
+    const e = toE164(u.phone);
+    if (!e || existing.has(e)) return;
+    const key = 'auto_' + Date.now() + '_' + added;
+    updates[key] = {
+      name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || '(staff)',
+      phone: u.phone,
+      active: true,
+      fromAccount: true,
+    };
+    added++;
+  });
+
+  if (added) {
+    await db.ref(`sites/${site}/recipients/managers/members`).update(updates);
+    if (!list.name) {
+      await db.ref(`sites/${site}/recipients/managers/name`).set('Managers');
+    }
+  }
+  return added;
+}
+
+exports.syncManagers = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, site} = req.data || {};
+  const actor = await getUser(actorId);
+  if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Not authorized.');
+  }
+
+  const targets = actor.role === 'superadmin'
+    ? (site ? [site] : ['PARF', 'SRF', 'KRF', 'GARF'])
+    : [actor.site];
+
+  const results = {};
+  for (const s of targets) {
+    results[s] = await syncManagersForSite(s);
+  }
+  const total = Object.values(results).reduce((a, b) => a + b, 0);
+  if (total) {
+    await logActivity('list_changed', targets.join(', '), fullName(actor),
+      `Synced ${total} staff account(s) onto Managers list(s)`);
+  }
+  return {results, total};
+});
