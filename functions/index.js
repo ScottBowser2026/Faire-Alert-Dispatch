@@ -180,7 +180,13 @@ exports.sendAlert = onCall(
       throw new HttpsError('failed-precondition', 'No valid recipients on the selected lists.');
     }
 
-    const results = await sendMany(from, Array.from(numbers), message);
+    // Every message carries the site's header so recipients know at a glance
+    // which property it came from.
+    const meta = await siteMeta(site);
+    const header = (meta.alertHeader || `${site} OPERATIONS ALERT`).toUpperCase();
+    const fullMessage = `${header}\n${message}`;
+
+    const results = await sendMany(from, Array.from(numbers), fullMessage);
 
     await logActivity(
       isDrill ? 'drill_sent' : 'alert_sent',
