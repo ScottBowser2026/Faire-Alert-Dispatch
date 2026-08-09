@@ -566,6 +566,7 @@ async function loadAll(uid){
       name: meta.name || code,
       tollFree: meta.tollFree || '',
       status: meta.status || 'pending',
+      alertHeader: meta.alertHeader || (code === 'PARF' ? 'PRF OPERATIONS ALERT' : `${code} OPERATIONS ALERT`),
     };
   });
 
@@ -626,7 +627,7 @@ function deleteUser(id){
 }
 
 function saveSiteMeta(s){
-  return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status})
+  return db.ref(`sites/${s.code}/meta`).set({name:s.name, tollFree:s.tollFree, status:s.status, alertHeader:s.alertHeader})
     .catch(reportSaveError('site settings'));
 }
 
@@ -1480,7 +1481,7 @@ function renderSitesView(root){
     <div class="sub">Manage each property's display name and toll-free number.</div>
     <div class="admin-section">
       <table class="data-table">
-        <thead><tr><th>Code</th><th>Name</th><th>Toll-Free Number</th><th>Status</th></tr></thead>
+        <thead><tr><th>Code</th><th>Name</th><th>Message Header</th><th>Toll-Free Number</th><th>Status</th></tr></thead>
         <tbody id="sitesBody"></tbody>
       </table>
     </div>
@@ -1497,6 +1498,7 @@ function renderSitesTable(){
     tr.innerHTML = `
       <td><span class="pin-cell">${s.code}</span></td>
       <td><input class="site-name-input" data-code="${s.code}" value="${s.name}" style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px 8px; font-family:var(--sans);" /></td>
+      <td><input class="site-hdr-input" data-code="${s.code}" value="${s.alertHeader || ''}" placeholder="${s.code} OPERATIONS ALERT" style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px 8px; font-family:var(--mono); text-transform:uppercase;" /></td>
       <td><input class="site-tf-input" data-code="${s.code}" value="${s.tollFree}" placeholder="+1 (8XX) XXX-XXXX" style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:5px 8px; font-family:var(--mono);" /></td>
       <td>
         <select class="site-status-select" data-code="${s.code}" style="background:var(--panel-2); color:${(s.status||'pending')==='live' ? 'var(--clear)' : 'var(--weather)'}; border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:12px; font-family:var(--sans); font-weight:700;">
@@ -1526,6 +1528,14 @@ function renderSitesTable(){
       s.status = sel.value;
       saveSiteMeta(s);
       renderAll();
+    };
+  });
+  body.querySelectorAll('.site-hdr-input').forEach(inp=>{
+    inp.onchange = ()=>{
+      const s = sites.find(x=>x.code===inp.dataset.code);
+      s.alertHeader = inp.value.trim().toUpperCase() || `${s.code} OPERATIONS ALERT`;
+      inp.value = s.alertHeader;
+      saveSiteMeta(s);
     };
   });
   body.querySelectorAll('.site-tf-input').forEach(inp=>{
@@ -1977,13 +1987,18 @@ function nextQuarterHour(hhmm){
   return String(nh).padStart(2,'0') + ':' + String(nm).padStart(2,'0');
 }
 
+function siteHeader(code){
+  const s = sites.find(x=>x.code===code);
+  return ((s && s.alertHeader) || `${code} OPERATIONS ALERT`).toUpperCase();
+}
+
 function buildMessage(alert, timeVal, resumeVal){
   const shown = timeVal ? formatTime12(timeVal) : '[enter time]';
   let msg = alert.text.replace('{time}', shown);
   if(msg.includes('{resume}')){
     msg = msg.replace('{resume}', formatTime12(resumeVal));
   }
-  return msg;
+  return siteHeader(activeSite) + '\n' + msg;
 }
 
 function openModal(alertDef){
@@ -2066,7 +2081,7 @@ function openModal(alertDef){
     }
   } else {
     timeSlot.innerHTML = '';
-    document.getElementById('msgBox').textContent = alert.text;
+    document.getElementById('msgBox').textContent = siteHeader(activeSite) + '\n' + alert.text;
   }
   updateCharCount();
 
@@ -2140,7 +2155,11 @@ document.getElementById('confirmBtn').onclick = ()=>{
   const alertName = pendingAlert.name;
   const site = activeSite;
   const isDrill = pendingAlert.cat === 'test';
-  const messageText = document.getElementById('msgBox').innerText;
+  let messageText = document.getElementById('msgBox').innerText;
+  const hdr = siteHeader(site);
+  if(messageText.startsWith(hdr)){
+    messageText = messageText.slice(hdr.length).replace(/^\s*\n/, '');
+  }
   const enteredAuth = (document.getElementById('authCodeInput')?.value || '').trim();
 
   const btn = document.getElementById('confirmBtn');
