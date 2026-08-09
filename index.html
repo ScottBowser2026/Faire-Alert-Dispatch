@@ -1568,7 +1568,7 @@ function renderRecipientsView(root){
   root.innerHTML = `
     <h1>Recipients \u2014 ${activeSite}</h1>
     <div class="sub">Add or remove individual people, and confirm each list is current before the weekend.</div>
-    <button class="all-btn" id="reviewReminderBtn" style="width:auto; padding:8px 14px; margin-bottom:20px;">Send review reminder to Operations Managers</button>
+    <button class="all-btn" id="reviewReminderBtn" style="width:auto; padding:8px 14px; margin-bottom:20px;">Email review reminder to Operations Managers</button>
     <button class="all-btn" id="syncManagersBtn" style="width:auto; padding:8px 14px; margin-bottom:20px; margin-left:8px;">Sync staff accounts to Managers list</button>
     <div class="import-picker-note" id="syncResult" style="margin-bottom:16px;"></div>
     <div id="listBlocks"></div>
@@ -1698,13 +1698,23 @@ function renderRecipientsView(root){
 }
 
 function sendWeeklyReviewReminder(){
-  const managers = users.filter(u => u.role === 'superadmin' || (u.role === 'admin' && u.site === activeSite));
-  const stale = recipientsBySite[activeSite].filter(r => reviewStatus(r).stale).map(r=>r.name);
-  const msg = stale.length
-    ? `${activeSite} recipient review due before this weekend. Lists needing review: ${stale.join(', ')}.`
-    : `${activeSite} recipient lists are all current. No review needed.`;
-  console.log('[Weekly review reminder]', msg, '-> would text:', managers.map(m=>`${fullName(m)} ${m.phone}`).join(' | '));
-  showToast(`Review reminder sent to ${managers.length} manager(s)`, false);
+  const btn = document.getElementById('reviewReminderBtn');
+  if(btn) btn.disabled = true;
+  showToast('Sending review reminder\u2026', false);
+  callFn('sendReviewReminder', {actorId: loggedInUser.id, site: activeSite})
+    .then(res=>{
+      if(btn) btn.disabled = false;
+      const r = res[activeSite] || {};
+      if(r.sent){
+        showToast(`Review reminder emailed to ${r.sent} Operations Manager(s)`, false);
+      } else {
+        showToast(r.reason || 'No Operations Managers with an email address on file.', true);
+      }
+    })
+    .catch(e=>{
+      if(btn) btn.disabled = false;
+      showToast(e.message || 'Could not send the reminder.', true);
+    });
 }
 
 function fmtWhen(ts){
