@@ -478,19 +478,19 @@ const categories = [
 
 const alerts = [
   {cat:'gate', group:'opening', name:'All Clear - Opening', text:'All clear as of {time}. Faire grounds are now closed to vehicle traffic.'},
-  {cat:'gate', group:'opening', name:'Opening Early', text:'Gates are opening early today at {time}. Please be in position and ready ahead of that time.'},
-  {cat:'gate', group:'opening', name:'Gate Delayed', text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
-  {cat:'gate', group:'closing', name:'Closing Early', text:'Gates are closing early today at {time}. Please begin closing procedures ahead of that time.'},
+  {cat:'gate', group:'opening', name:'Opening Early', futureTime:true, text:'Gates are opening early today at {time}. Please be in position and ready ahead of that time.'},
+  {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
+  {cat:'gate', group:'closing', name:'Closing Early', futureTime:true, text:'Gates are closing early today at {time}. Please begin closing procedures ahead of that time.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
-  {cat:'weather', group:'event', name:'Weather - Delay', text:'Weather delay in effect until {time}. Hold your current position and await further instructions.'},
+  {cat:'weather', group:'event', name:'Weather - Delay', futureTime:true, text:'Weather delay in effect until {time}. Hold your current position and await further instructions.'},
   {cat:'weather', group:'event', name:'Weather Alert - Seek Shelter', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
   {cat:'weather', group:'event', name:'Weather Cancellation', text:"As of {time}, today's event is cancelled due to weather. Stand down and await further instructions."},
   {cat:'weather', group:'event', name:'Return to Operations', text:'Weather is clear as of {time}. Return to normal operations. Performances will resume at {resume}.'},
-  {cat:'weather', group:'nonshow', name:'Office Delayed Opening', text:'Office opening is delayed due to weather. New opening time: {time}.'},
+  {cat:'weather', group:'nonshow', name:'Office Delayed Opening', futureTime:true, text:'Office opening is delayed due to weather. New opening time: {time}.'},
   {cat:'weather', group:'nonshow', name:'Office Closed (Weather)', text:'As of {time}, the office is closed today due to weather.'},
   {cat:'weather', group:'nonshow', name:'Seek Shelter (Office Day)', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
-  {cat:'weather', group:'nonshow', name:'Office Reopens / Return to Normal', text:'Weather is clear as of {time}. The office has reopened. Normal operations resume.'},
+  {cat:'weather', group:'nonshow', name:'Office Reopens / Return to Normal', futureTime:true, text:'Weather is clear as of {time}. The office has reopened. Normal operations resume.'},
   {cat:'safety', group:'emergency', name:'Emergency - Water', text:'Emergency: Water incident reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Emergency - Fire', text:'Emergency: Fire reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Active Shooter', text:'ACTIVE SHOOTER on site. RUN, HIDE, FIGHT. Call 911 immediately. This is not a drill.', critical:true},
@@ -1942,7 +1942,8 @@ function nextQuarterHour(hhmm){
 }
 
 function buildMessage(alert, timeVal, resumeVal){
-  let msg = alert.text.replace('{time}', formatTime12(timeVal));
+  const shown = timeVal ? formatTime12(timeVal) : '[enter time]';
+  let msg = alert.text.replace('{time}', shown);
   if(msg.includes('{resume}')){
     msg = msg.replace('{resume}', formatTime12(resumeVal));
   }
@@ -2004,6 +2005,21 @@ function openModal(alertDef){
       document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal, resumeDefault);
       document.getElementById('timeInput').oninput = refresh;
       document.getElementById('resumeInput').oninput = refresh;
+    } else if(alert.futureTime){
+      // This time is a future event the manager must supply — never default to
+      // the current clock, or a stray Send broadcasts the wrong time.
+      timeSlot.innerHTML = `
+        <div class="time-row">
+          <label for="timeInput">Time</label>
+          <input type="time" id="timeInput" value="" style="border-color:var(--weather);" />
+          <span style="font-size:11.5px; color:var(--weather);">required</span>
+        </div>`;
+      document.getElementById('msgBox').textContent = buildMessage(alert, '');
+      document.getElementById('timeInput').oninput = (e)=>{
+        document.getElementById('msgBox').textContent = buildMessage(alert, e.target.value);
+        document.getElementById('timeInput').style.borderColor = e.target.value ? 'var(--clear)' : 'var(--weather)';
+        updateCharCount();
+      };
     } else {
       timeSlot.innerHTML = `<div class="time-row"><label for="timeInput">Time</label><input type="time" id="timeInput" value="${defaultVal}" /></div>`;
       document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal);
@@ -2095,6 +2111,17 @@ document.getElementById('confirmBtn').onclick = ()=>{
   btn.disabled = true;
   document.getElementById('pinConfirmError').style.color = 'var(--muted)';
   document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
+
+  if(pendingAlert.futureTime){
+    const t = document.getElementById('timeInput');
+    if(!t || !t.value){
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = 'Enter the time before sending.';
+      if(t) t.style.borderColor = 'var(--safety)';
+      return;
+    }
+  }
 
   const enteredPin = document.getElementById('confirmPinInput').value.trim();
   if(!/^\d{4}$/.test(enteredPin)){
