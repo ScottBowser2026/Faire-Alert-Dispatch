@@ -220,6 +220,7 @@
   .tab[data-cat="weather"].active{border-color:var(--weather);}
   .tab[data-cat="safety"].active{border-color:var(--safety);}
   .tab[data-cat="test"].active{border-color:var(--muted);}
+  .tab[data-cat="heat"].active{border-color:#e8c34d;}
 
   .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .subgroup{grid-column:1 / -1; display:flex; flex-direction:column; gap:12px;}
@@ -244,10 +245,12 @@
   [data-cat-card="weather"] .badge{background:#3a2c14; color:var(--weather);}
   [data-cat-card="safety"] .badge{background:#3a1a17; color:var(--safety);}
   [data-cat-card="test"] .badge{background:#2a2c30; color:var(--muted);}
+  [data-cat-card="heat"] .badge{background:#3a3418; color:#e8c34d;}
   [data-cat-card="gate"]{--accent:var(--gate);}
   [data-cat-card="weather"]{--accent:var(--weather);}
   [data-cat-card="safety"]{--accent:var(--safety);}
   [data-cat-card="test"]{--accent:var(--muted);}
+  [data-cat-card="heat"]{--accent:#e8c34d;}
   .safety-critical{border-color:#5c2521 !important; background:#241413;}
 
   /* Overlay + modal */
@@ -539,6 +542,7 @@ let optOutBySite = {};
 const categories = [
   {id:'gate', label:'Gate Status'},
   {id:'weather', label:'Weather'},
+  {id:'heat', label:'Heat Advisory'},
   {id:'safety', label:'Safety Alert'},
   {id:'test', label:'Test'},
 ];
@@ -558,6 +562,8 @@ const alerts = [
   {cat:'weather', group:'nonshow', name:'Office Closed (Weather)', text:'As of {time}, the office is closed today due to weather.'},
   {cat:'weather', group:'nonshow', name:'Seek Shelter (Office Day)', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
   {cat:'weather', group:'nonshow', name:'Office Reopens / Return to Normal', futureTime:true, text:'Weather is clear as of {time}. The office has reopened. Normal operations resume.'},
+  {cat:'heat', name:'Heat Advisory', futureTime:true, text:'HEAT ADVISORY \u2014 Dangerous heat conditions effective {time}. Supervisors are required to check on outdoor crews every hour, ensure hydration breaks, and be alert for symptoms of heat stress or illness.'},
+  {cat:'heat', name:'Heat Advisory - All Clear', text:'HEAT ADVISORY LIFTED as of {time}. Conditions have improved. Continue to monitor crews and maintain normal hydration breaks.'},
   {cat:'safety', group:'emergency', name:'Emergency - Water', text:'Emergency: Water incident reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Emergency - Fire', text:'Emergency: Fire reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Active Shooter', text:'ACTIVE SHOOTER on site. RUN, HIDE, FIGHT. Call 911 immediately. This is not a drill.', critical:true},
