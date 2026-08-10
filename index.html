@@ -1300,6 +1300,7 @@ function renderAdminPanelView(root){
 }
 
 let editingUserId = null;
+let editingMemberKey = null;
 
 function renderUsersTable(){
   const superBody = document.getElementById('superusersBody');
@@ -1626,15 +1627,26 @@ function renderRecipientsView(root){
     } else {
       r.members.forEach((m, idx)=>{
         const isActive = m.active !== false;
+        const key = r.id + ':' + idx;
+        const editing = editingMemberKey === key;
+        const dis = editing ? '' : 'disabled';
         const tr = document.createElement('tr');
-        if(!isActive){ tr.style.opacity = '.5'; }
-        tr.innerHTML = `<td>${m.name}</td><td>${m.phone}</td>
+        if(!isActive && !editing){ tr.style.opacity = '.5'; }
+        if(editing){ tr.className = 'editing-row'; }
+        tr.innerHTML = `
+          <td><input class="mem-name" data-k="${key}" value="${(m.name||'').replace(/"/g,'&quot;')}" ${dis}
+              style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--sans);" /></td>
+          <td><input class="mem-phone" data-k="${key}" value="${m.phone||''}" ${dis}
+              style="width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:4px 6px; font-family:var(--mono);" /></td>
           <td><select class="active-select" data-act="${r.id}" data-idx="${idx}"
               style="background:var(--panel-2); border:1px solid ${isActive?'var(--clear)':'var(--line)'}; color:${isActive?'var(--clear)':'var(--muted)'}; border-radius:6px; padding:3px 8px; font-size:12px; font-weight:700; cursor:pointer; font-family:var(--sans);">
               <option value="active" ${isActive?'selected':''}>Active</option>
               <option value="inactive" ${!isActive?'selected':''}>Inactive</option>
             </select></td>
-          <td><button class="remove-link" data-rm="${r.id}" data-idx="${idx}">Remove</button></td>`;
+          <td>
+            <button class="edit-link" data-medit="${key}" style="margin-right:8px;">${editing ? 'Save' : 'Edit'}</button>
+            <button class="remove-link" data-rm="${r.id}" data-idx="${idx}">Remove</button>
+          </td>`;
         tbody.appendChild(tr);
       });
     }
@@ -1659,6 +1671,37 @@ function renderRecipientsView(root){
       logActivity('list_changed', activeSite, `Added ${name} to ${r.name}`);
       saveList(activeSite, r);
       renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-medit]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const key = btn.dataset.medit;
+      if(editingMemberKey === key){
+        const [lid, idxStr] = key.split(':');
+        const r = recipients.find(x=>x.id===lid);
+        const m = r.members[Number(idxStr)];
+        const nameEl = holder.querySelector(`.mem-name[data-k="${key}"]`);
+        const phoneEl = holder.querySelector(`.mem-phone[data-k="${key}"]`);
+        const newName = nameEl.value.trim();
+        const newPhone = phoneEl.value.replace(/[()]/g,'').replace(/\s+/g,' ').trim();
+        if(!newName || newPhone.replace(/[^\d]/g,'').length < 10){
+          showToast('Enter a name and a valid phone number.', true);
+          return;
+        }
+        const changed = (newName !== m.name) || (newPhone !== m.phone);
+        m.name = newName;
+        m.phone = newPhone;
+        editingMemberKey = null;
+        if(changed){
+          logActivity('list_changed', activeSite, `Edited ${newName} on ${r.name}`);
+          saveList(activeSite, r);
+        }
+        renderAll();
+      } else {
+        editingMemberKey = key;
+        renderAll();
+      }
     };
   });
 
