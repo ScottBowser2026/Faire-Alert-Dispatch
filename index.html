@@ -1292,13 +1292,41 @@ function renderPatronView(root){
   input.oninput = refresh;
   refresh();
 
-  const recent = activityLog.filter(e=>e.type==='patron_count' && e.site===activeSite).slice(0,10);
   const hist = document.getElementById('patronHistory');
-  hist.innerHTML = recent.length
-    ? recent.map(e=>`<div style="display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px;">
-        <span style="font-family:var(--mono); font-weight:700;">${e.meta && e.meta.count ? Number(e.meta.count).toLocaleString('en-US') : '\u2014'}</span>
-        <span style="color:var(--muted);">${fmtWhen(e.ts)} \u00b7 ${e.actor}</span></div>`).join('')
-    : '<div class="import-picker-note">No counts recorded yet.</div>';
+  hist.innerHTML = '<div class="import-picker-note">Loading\u2026</div>';
+
+  const loadCounts = ()=>{
+    callFn('getRecentCounts', {actorId: loggedInUser.id, site: activeSite})
+      .then(res=>{
+        const rows = res.counts || [];
+        if(!rows.length){
+          hist.innerHTML = '<div class="import-picker-note">No counts recorded yet.</div>';
+          return;
+        }
+        hist.innerHTML = rows.map(c=>`
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px;">
+            <span style="font-family:var(--mono); font-weight:700;">${Number(c.count).toLocaleString('en-US')}</span>
+            <span style="display:flex; align-items:center; gap:10px;">
+              <span style="color:var(--muted); font-size:12px;">${fmtWhen(c.ts)} \u00b7 ${c.by || ''}</span>
+              ${isSuperadmin() ? `<button class="remove-link" data-delcount="${c.id}">Remove</button>` : ''}
+            </span>
+          </div>`).join('');
+
+        hist.querySelectorAll('[data-delcount]').forEach(btn=>{
+          btn.onclick = ()=>{
+            const row = rows.find(x=>x.id===btn.dataset.delcount);
+            if(!window.confirm(`Remove the count of ${Number(row.count).toLocaleString('en-US')} recorded at ${fmtWhen(row.ts)}?\n\nThis cannot be undone. Texts already sent are not recalled.`)) return;
+            callFn('deletePatronCount', {actorId: loggedInUser.id, site: activeSite, entryId: row.id})
+              .then(()=>{ showToast('Count removed.', false); loadCounts(); })
+              .catch(e=> showToast(e.message || 'Could not remove that count.', true));
+          };
+        });
+      })
+      .catch(e=>{
+        hist.innerHTML = `<div class="import-picker-note" style="color:var(--safety);">${e.message || 'Could not load counts.'}</div>`;
+      });
+  };
+  loadCounts();
 
   document.getElementById('sendPatronBtn').onclick = ()=>{
     const err = document.getElementById('patronError');
