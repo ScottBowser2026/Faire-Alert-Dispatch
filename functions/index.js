@@ -1177,6 +1177,21 @@ exports.getAttendanceDay = onCall({region: REGION}, async (req) => {
              : {entries: [], site: target, day: dayKey};
 });
 
+// Recent counts with their record ids, so entries can be removed individually.
+exports.getRecentCounts = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, site} = req.data || {};
+  const actor = await getUser(actorId);
+  const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
+
+  const snap = await db.ref(`sites/${target}/patronCounts`)
+    .orderByChild('ts').limitToLast(15).once('value');
+  const rows = Object.entries(snap.val() || {})
+    .map(([id, c]) => Object.assign({id}, c))
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return {counts: rows};
+});
+
 // Recipient list for the attendance report, kept separate from the activity digest.
 exports.setAttendanceRecipients = onCall({region: REGION}, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
@@ -1235,4 +1250,29 @@ exports.getReportHistory = onCall({region: REGION}, async (req) => {
     rows = rows.filter((r) => r.site === actor.site);
   }
   return {history: rows};
+});
+
+// ---------- 17. deletePatronCount ----------
+// Removes a single count entry. Scoped deliberately narrow — there is no
+// bulk delete, so a mistake costs one row rather than a day of records.
+exports.deletePatronCount = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, site, entryId} = req.data || {};
+  if (!site || !entryId) throw new HttpsError('invalid-argument', 'Missing site or entry.');
+
+  const actor = await getUser(actorId);
+  if (actor.role !== 'superadmin') {
+    throw new HttpsError('permission-denied', 'Only a Superuser can remove a recorded count.');
+  }
+
+  const ref = db.ref(`sites/${site}/patronCounts/${entryId}`);
+  const entry = (await ref.once('value')).val();
+  if (!entry) throw new HttpsError('not-found', 'That entry no longer exists.');
+
+  await ref.remove();
+  await logActivity('patron_count', site, fullName(actor),
+    `Removed patron count of ${Number(entry.count).toLocaleString('en-US')} recorded at ` +
+    new Date(entry.ts).toLocaleTimeString('en-US', {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'}));
+
+  return {ok: true};
 });
