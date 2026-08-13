@@ -1867,6 +1867,9 @@ function renderRecipientsView(root){
       <div class="import-picker-note" style="color:${status.stale ? 'var(--weather)' : 'var(--muted)'}; margin-bottom:10px;">
         ${status.text}
         <button class="edit-link" data-review="${r.id}" style="margin-left:10px;">Mark reviewed</button>
+        ${r.members.some(m=>m.active===false)
+          ? `<button class="edit-link" data-reactivate="${r.id}" style="margin-left:10px; color:var(--clear);">Set all active (${r.members.filter(m=>m.active===false).length} inactive)</button>`
+          : ''}
       </div>
       <table class="data-table">
         <thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
@@ -1982,6 +1985,20 @@ function renderRecipientsView(root){
       r.members.splice(Number(btn.dataset.idx), 1);
       logActivity('list_changed', activeSite, `Removed ${removed ? removed.name : 'someone'} from ${r.name}`);
       saveList(activeSite, r);
+      renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-reactivate]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.reactivate);
+      const count = r.members.filter(m=>m.active===false).length;
+      if(!count) return;
+      if(!window.confirm(`Set all ${count} inactive ${count===1?'person':'people'} on ${r.name} back to active?\n\nThey will start receiving alerts again.`)) return;
+      r.members.forEach(m=>{ m.active = true; });
+      logActivity('list_changed', activeSite, `Set ${count} back to active on ${r.name}`);
+      saveList(activeSite, r);
+      showToast(`${count} set active on ${r.name}`, false);
       renderAll();
     };
   });
