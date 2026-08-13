@@ -398,6 +398,24 @@
   .gc-title{display:block; font-size:13px; font-weight:700;}
   .gc-note{display:block; font-size:11px; color:var(--muted); margin-top:2px;}
   .gc-chev{color:var(--muted); font-size:18px;}
+
+  .report-summary{
+    width:100%; display:flex; justify-content:space-between; align-items:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:0;
+    padding:14px 16px; margin-bottom:10px; cursor:pointer;
+    font-family:var(--sans); color:var(--text); text-align:left;
+  }
+  .report-summary:hover{border-color:var(--muted);}
+  .summary-attendance{border-left:3px solid var(--gate);}
+  .rs-title{font-size:13.5px; font-weight:700;}
+  .rs-note{font-size:11px; color:var(--muted); margin-top:2px;}
+  .rs-chev{color:var(--muted); font-size:17px;}
+  .hist-chip{
+    font-size:11px; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--muted); border-radius:100px; padding:4px 12px; cursor:pointer;
+    font-family:var(--sans);
+  }
+  .hist-chip.on{border-color:var(--muted); color:var(--text);}
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -536,6 +554,10 @@ const EVENT_TYPES = {
   patron_count: {label:'Patron count',    color:'var(--gate)'},
 };
 
+let attendanceRecipients = [];
+let reportPanelOpen = null;
+let reportHistory = [];
+let historyFilter = 'all';
 let reportSettings = {
   recipients: [],
   cadence: 'weekly',
@@ -689,6 +711,9 @@ async function loadAll(uid){
   });
 
   activityLog = d.activityLog || [];
+
+  const ar = d.attendanceReport || {};
+  attendanceRecipients = ar.recipients ? Object.values(ar.recipients) : [];
 
   const rs = d.reportSettings || {};
   reportSettings = {
@@ -2070,7 +2095,14 @@ function renderReportsView(root){
       ? 'Activity across all sites, and the email digest sent to Lancelot administration.'
       : `Activity for ${siteName(activeSite)}. You can send a report for your property at any time.`}</div>
 
-    <div class="admin-section role-group">
+    <button class="report-summary" data-panel="activity">
+      <div>
+        <div class="rs-title">Activity report</div>
+        <div class="rs-note">${reportSettings.cadence.charAt(0).toUpperCase()+reportSettings.cadence.slice(1)} \u00b7 ${reportSettings.recipients.length} recipient(s)</div>
+      </div>
+      <span class="rs-chev">${reportPanelOpen==='activity' ? '\u2304' : '\u203a'}</span>
+    </button>
+    <div class="admin-section role-group" style="display:${reportPanelOpen==='activity'?'block':'none'};">
       <h3>Email report <span class="group-note">${superuser ? 'Sent to Lancelot administration' : 'Distribution managed by a Superuser'}</span></h3>
       ${superuser ? `
       <div class="add-user-row" style="margin-top:0;">
@@ -2082,7 +2114,8 @@ function renderReportsView(root){
         </select>
         <button class="add-btn" id="addReportRecipientBtn">Add recipient</button>
       </div>` : ''}
-      <div id="reportRecipientList" style="margin-top:${superuser ? '10' : '0'}px;"></div>
+      <div class="import-picker-note" style="margin-top:12px; margin-bottom:6px;">Sent to</div>
+      <div id="reportRecipientList"></div>
 
       ${superuser ? `
       <div class="import-picker-note" style="margin-top:14px; margin-bottom:6px;">Include in the report:</div>
@@ -2092,6 +2125,36 @@ function renderReportsView(root){
         ${superuser ? 'Preview &amp; send now' : `Preview &amp; send ${activeSite} report`}
       </button>
       <div id="reportPreview"></div>
+    </div>
+
+    <button class="report-summary summary-attendance" data-panel="attendance">
+      <div>
+        <div class="rs-title">Attendance report</div>
+        <div class="rs-note">Daily at 11:00 PM \u00b7 ${attendanceRecipients.length} recipient(s)</div>
+      </div>
+      <span class="rs-chev">${reportPanelOpen==='attendance' ? '\u2304' : '\u203a'}</span>
+    </button>
+    <div class="admin-section role-group" style="border-left:3px solid var(--gate); display:${reportPanelOpen==='attendance'?'block':'none'};">
+      <h3>Attendance report <span class="group-note">End of day, every patron count</span></h3>
+      <div class="import-picker-note" style="margin-bottom:12px;">Sends automatically at 11:00 PM on any day a count was recorded.</div>
+      ${superuser ? `
+      <div class="add-user-row" style="margin-top:0;">
+        <input type="text" id="newAttendanceRecipient" placeholder="Email address" />
+        <button class="add-btn" id="addAttendanceRecipientBtn">Add</button>
+      </div>` : ''}
+      <div class="import-picker-note" style="margin-top:12px; margin-bottom:6px;">Sent to</div>
+      <div id="attendanceRecipientList"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+        <button class="all-btn" id="sendAttendanceBtn" style="width:auto; padding:8px 14px;">Send today's report now</button>
+        <button class="all-btn" id="downloadAttendanceBtn" style="width:auto; padding:8px 14px;">Download CSV</button>
+      </div>
+      <div class="import-picker-note" id="attendanceResult" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="admin-section role-group">
+      <h3>Report history <span class="group-note">Last 30 days</span></h3>
+      <div id="historyFilters" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+      <div id="historyBody"></div>
     </div>
 
     <div class="admin-section role-group">
@@ -2113,7 +2176,10 @@ function renderReportsView(root){
       : 'No report recipients configured yet. Ask a Superuser to set the distribution list.'}</div>`;
   } else {
     listEl.innerHTML = reportSettings.recipients.map((e,i)=>
-      `<span class="to-pill" style="margin-right:6px;">${e}${superuser ? ` <button class="remove-link" data-rmrep="${i}" style="margin-left:6px;">\u00d7</button>` : ''}</span>`
+      `<div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel-2); border:1px solid var(--line); border-radius:6px; padding:7px 10px; margin-bottom:5px;">
+         <span style="font-size:12.5px;">${e}</span>
+         ${superuser ? `<button class="remove-link" data-rmrep="${i}">Remove</button>` : ''}
+       </div>`
     ).join('');
   }
 
@@ -2146,7 +2212,98 @@ function renderReportsView(root){
     });
   }
 
+  root.querySelectorAll('[data-panel]').forEach(btn=>{
+    btn.onclick = ()=>{
+      reportPanelOpen = (reportPanelOpen === btn.dataset.panel) ? null : btn.dataset.panel;
+      renderAll();
+    };
+  });
+
+  renderHistoryFilters();
+  loadReportHistory();
+
   document.getElementById('previewReportBtn').onclick = ()=> previewReport(cadenceMs, scopeSite);
+
+  // ---- Attendance report ----
+  const arList = document.getElementById('attendanceRecipientList');
+  const renderAttendanceRecipients = ()=>{
+    arList.innerHTML = attendanceRecipients.length
+      ? attendanceRecipients.map((e,i)=>
+          `<div style="display:flex; justify-content:space-between; align-items:center; background:var(--panel-2); border:1px solid var(--line); border-radius:6px; padding:7px 10px; margin-bottom:5px;">
+             <span style="font-size:12.5px;">${e}</span>
+             ${superuser ? `<button class="remove-link" data-rmatt="${i}">Remove</button>` : ''}
+           </div>`).join('')
+      : `<div class="import-picker-note">${superuser ? 'No recipients yet. Add at least one email address.' : 'No recipients configured. Ask a Superuser to set them.'}</div>`;
+    arList.querySelectorAll('[data-rmatt]').forEach(b=>{
+      b.onclick = ()=>{
+        attendanceRecipients.splice(Number(b.dataset.rmatt),1);
+        callFn('setAttendanceRecipients', {actorId: loggedInUser.id, recipients: attendanceRecipients})
+          .then(()=> renderAttendanceRecipients())
+          .catch(e=> showToast(e.message || 'Could not save.', true));
+      };
+    });
+  };
+  renderAttendanceRecipients();
+
+  if(superuser){
+    document.getElementById('addAttendanceRecipientBtn').onclick = ()=>{
+      const el = document.getElementById('newAttendanceRecipient');
+      const v = el.value.trim();
+      if(!v || !v.includes('@')) return;
+      attendanceRecipients.push(v);
+      el.value = '';
+      callFn('setAttendanceRecipients', {actorId: loggedInUser.id, recipients: attendanceRecipients})
+        .then(()=> renderAttendanceRecipients())
+        .catch(e=> showToast(e.message || 'Could not save.', true));
+    };
+  }
+
+  const attOut = document.getElementById('attendanceResult');
+  document.getElementById('sendAttendanceBtn').onclick = ()=>{
+    attOut.style.color = 'var(--muted)';
+    attOut.textContent = 'Sending\u2026';
+    callFn('sendAttendanceReport', {actorId: loggedInUser.id, site: activeSite})
+      .then(res=>{
+        attOut.style.color = res.sent ? 'var(--clear)' : 'var(--weather)';
+        attOut.textContent = res.sent
+          ? `Sent to ${res.sent} recipient(s). ${res.count} count(s), final ${Number(res.final).toLocaleString('en-US')}.`
+          : (res.reason === 'no counts recorded' ? 'No counts recorded today.' : 'No recipients configured yet.');
+      })
+      .catch(e=>{
+        attOut.style.color = 'var(--safety)';
+        attOut.textContent = e.message || 'Could not send the report.';
+      });
+  };
+
+  document.getElementById('downloadAttendanceBtn').onclick = ()=>{
+    attOut.style.color = 'var(--muted)';
+    attOut.textContent = 'Building\u2026';
+    callFn('getAttendanceDay', {actorId: loggedInUser.id, site: activeSite})
+      .then(res=>{
+        if(!res.entries || !res.entries.length){
+          attOut.style.color = 'var(--weather)';
+          attOut.textContent = 'No counts recorded today.';
+          return;
+        }
+        const rows = ['Time,Count,Recorded by'];
+        res.entries.forEach(e=>{
+          const t = new Date(e.ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+          rows.push(`"${t}",${e.count},"${(e.by||'').replace(/"/g,'""')}"`);
+        });
+        const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${res.site}-attendance-${res.day}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        attOut.style.color = 'var(--clear)';
+        attOut.textContent = `Downloaded ${res.entries.length} count(s).`;
+      })
+      .catch(e=>{
+        attOut.style.color = 'var(--safety)';
+        attOut.textContent = e.message || 'Could not build the file.';
+      });
+  };
 
   const body = document.getElementById('activityBody');
   const shown = activityLog.filter(e => !scopeSite || e.site === scopeSite);
@@ -2166,6 +2323,79 @@ function renderReportsView(root){
       body.appendChild(tr);
     });
   }
+}
+
+const HISTORY_KINDS = [
+  {id:'all', label:'All'},
+  {id:'attendance', label:'Attendance'},
+  {id:'activity', label:'Activity'},
+  {id:'review', label:'Review'},
+];
+
+function renderHistoryFilters(){
+  const el = document.getElementById('historyFilters');
+  if(!el) return;
+  el.innerHTML = HISTORY_KINDS.map(k=>
+    `<button class="hist-chip${historyFilter===k.id?' on':''}" data-hk="${k.id}">${k.label}</button>`
+  ).join('');
+  el.querySelectorAll('[data-hk]').forEach(b=>{
+    b.onclick = ()=>{ historyFilter = b.dataset.hk; renderHistoryFilters(); renderHistoryTable(); };
+  });
+}
+
+function loadReportHistory(){
+  const body = document.getElementById('historyBody');
+  if(!body) return;
+  body.innerHTML = '<div class="import-picker-note">Loading\u2026</div>';
+  callFn('getReportHistory', {actorId: loggedInUser.id})
+    .then(res=>{ reportHistory = res.history || []; renderHistoryTable(); })
+    .catch(e=>{ body.innerHTML = `<div class="import-picker-note" style="color:var(--safety);">${e.message || 'Could not load history.'}</div>`; });
+}
+
+function renderHistoryTable(){
+  const body = document.getElementById('historyBody');
+  if(!body) return;
+  const rows = reportHistory.filter(r=> historyFilter==='all' || r.kind===historyFilter);
+  if(!rows.length){
+    body.innerHTML = '<div class="import-picker-note">No reports sent in this period.</div>';
+    return;
+  }
+  const kindLabel = {attendance:'Attendance', activity:'Activity', review:'Review reminder'};
+  body.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Sent</th><th>Report</th><th>To</th><th>Result</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const d = new Date(r.ts);
+        const when = (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+        const ok = !r.failed;
+        return `<tr>
+          <td style="white-space:nowrap; font-family:var(--mono); font-size:11.5px; color:var(--muted);">${when}</td>
+          <td style="font-size:12.5px;">${kindLabel[r.kind]||r.kind} \u00b7 ${r.site}</td>
+          <td style="font-size:12px; color:var(--muted);">${r.total}</td>
+          <td style="font-size:12px; color:${ok?'var(--clear)':'var(--weather)'};">${ok?'Sent':r.failed+' failed'}</td>
+          <td><button class="edit-link" data-hv="${r.id}">View</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+    <div id="historyDetail"></div>`;
+
+  body.querySelectorAll('[data-hv]').forEach(b=>{
+    b.onclick = ()=>{
+      const r = reportHistory.find(x=>x.id===b.dataset.hv);
+      const det = document.getElementById('historyDetail');
+      const fails = (r.failures||[]).length
+        ? `<div class="warn-box" style="margin-top:10px;"><strong>Failed:</strong><br>${r.failures.map(f=>`${f.to} \u2014 ${f.error||'unknown error'}`).join('<br>')}</div>`
+        : '';
+      det.innerHTML = `
+        <div style="margin-top:14px;">
+          <div style="font-size:12.5px; font-weight:700; margin-bottom:6px;">${r.subject || '(no subject)'}</div>
+          ${fails}
+          <div class="msg-box" style="max-height:260px; overflow:auto; white-space:pre-wrap;">${(r.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>
+          <button class="edit-link" id="closeHistDetail">Close</button>
+        </div>`;
+      document.getElementById('closeHistDetail').onclick = ()=>{ det.innerHTML = ''; };
+    };
+  });
 }
 
 function previewReport(cadenceMs, scopeSite){
@@ -2220,15 +2450,29 @@ function previewReport(cadenceMs, scopeSite){
   console.log('[Report email]\n' + text + '\n-> would email:', reportSettings.recipients.join(', ') || '(no recipients set)');
 
   const box = document.getElementById('reportPreview');
+  const subject = lines[0];
   box.innerHTML = `
     <div class="msg-box" style="margin-top:14px; max-height:280px; overflow:auto;">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>
-    <div class="import-picker-note">${reportSettings.recipients.length
-      ? `Demo mode (no email backend yet) \u2014 would send to ${reportSettings.recipients.join(', ')}`
+    <div class="import-picker-note" id="reportSendNote">${reportSettings.recipients.length
+      ? `Sending to ${reportSettings.recipients.length} recipient(s)\u2026`
       : 'Add a recipient email address above before this can send.'}</div>
   `;
-  if(reportSettings.recipients.length){
-    showToast(`Report generated for ${reportSettings.recipients.length} recipient(s)`, false);
-  }
+  if(!reportSettings.recipients.length) return;
+
+  callFn('sendActivityReport', {actorId: loggedInUser.id, subject, message: text, site: scopeSite || 'ALL'})
+    .then(res=>{
+      const note = document.getElementById('reportSendNote');
+      note.style.color = res.failed ? 'var(--weather)' : 'var(--clear)';
+      note.textContent = res.failed
+        ? `Sent to ${res.sent}, ${res.failed} failed. See report history below.`
+        : `Sent to ${res.sent} recipient(s).`;
+      loadReportHistory();
+    })
+    .catch(e=>{
+      const note = document.getElementById('reportSendNote');
+      note.style.color = 'var(--safety)';
+      note.textContent = e.message || 'Could not send the report.';
+    });
 }
 
 function renderOptOutsView(root){
