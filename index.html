@@ -1214,7 +1214,7 @@ function renderHomeView(root){
     <div class="home-grid">
       <button class="home-tile tile-patron" data-go="patron">
         <div class="tile-head"><span class="tile-name">Patron Count</span></div>
-        <div class="tile-note">Send the gate count to Security and Mt Hope Staff</div>
+        <div class="tile-note">Send the gate count to Managers, Security, and Mt Hope Staff</div>
       </button>
       <button class="home-tile tile-alert" data-go="send">
         <div class="tile-head"><span class="tile-name">Safety Alert</span></div>
@@ -1235,7 +1235,7 @@ function renderPatronView(root){
   const live = isSiteLive(activeSite);
   root.innerHTML = `
     <h1>Patron Count \u2014 ${activeSite}</h1>
-    <div class="sub">Goes to Security Personnel, Mt Hope Staff, and the Teams channel. Time is recorded automatically.</div>
+    <div class="sub">Goes to Managers, Security Personnel, Mt Hope Staff, and the Teams channel. Time is recorded automatically.</div>
     ${live ? '' : `<div class="warn-box" style="margin-bottom:18px;"><strong>${activeSite} is not live yet.</strong> Counts can't be sent.</div>`}
     <div class="admin-section role-group" style="border-left:3px solid var(--gate); max-width:420px;">
       <h3>Enter the count</h3>
