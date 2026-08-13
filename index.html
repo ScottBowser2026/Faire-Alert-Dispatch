@@ -2121,9 +2121,10 @@ function renderReportsView(root){
       <div class="import-picker-note" style="margin-top:14px; margin-bottom:6px;">Include in the report:</div>
       <div id="reportIncludes" style="display:flex; gap:14px; flex-wrap:wrap;"></div>` : ''}
 
-      <button class="all-btn" id="previewReportBtn" style="width:auto; padding:8px 14px; margin-top:16px;">
-        ${superuser ? 'Preview &amp; send now' : `Preview &amp; send ${activeSite} report`}
-      </button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">
+        <button class="all-btn" id="previewReportBtn" style="width:auto; padding:8px 14px;">Preview</button>
+        <button class="all-btn" id="sendReportBtn" style="width:auto; padding:8px 14px;">Send now</button>
+      </div>
       <div id="reportPreview"></div>
     </div>
 
@@ -2145,7 +2146,8 @@ function renderReportsView(root){
       <div class="import-picker-note" style="margin-top:12px; margin-bottom:6px;">Sent to</div>
       <div id="attendanceRecipientList"></div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-        <button class="all-btn" id="sendAttendanceBtn" style="width:auto; padding:8px 14px;">Send today's report now</button>
+        <button class="all-btn" id="previewAttendanceBtn" style="width:auto; padding:8px 14px;">Preview</button>
+        <button class="all-btn" id="sendAttendanceBtn" style="width:auto; padding:8px 14px;">Send now</button>
         <button class="all-btn" id="downloadAttendanceBtn" style="width:auto; padding:8px 14px;">Download CSV</button>
       </div>
       <div class="import-picker-note" id="attendanceResult" style="margin-top:8px;"></div>
@@ -2222,7 +2224,8 @@ function renderReportsView(root){
   renderHistoryFilters();
   loadReportHistory();
 
-  document.getElementById('previewReportBtn').onclick = ()=> previewReport(cadenceMs, scopeSite);
+  document.getElementById('previewReportBtn').onclick = ()=> previewReport(cadenceMs, scopeSite, false);
+  document.getElementById('sendReportBtn').onclick = ()=> previewReport(cadenceMs, scopeSite, true);
 
   // ---- Attendance report ----
   const arList = document.getElementById('attendanceRecipientList');
@@ -2259,6 +2262,35 @@ function renderReportsView(root){
   }
 
   const attOut = document.getElementById('attendanceResult');
+
+  document.getElementById('previewAttendanceBtn').onclick = ()=>{
+    attOut.style.color = 'var(--muted)';
+    attOut.textContent = 'Building\u2026';
+    callFn('getAttendanceDay', {actorId: loggedInUser.id, site: activeSite})
+      .then(res=>{
+        if(!res.entries || !res.entries.length){
+          attOut.style.color = 'var(--weather)';
+          attOut.textContent = 'No counts recorded today.';
+          return;
+        }
+        const fmtT = ts => new Date(ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+        const peak = res.entries.reduce((m,c)=> c.count > m.count ? c : m, res.entries[0]);
+        const lines = [`${res.site} ATTENDANCE \u2014 ${res.day}`, ''];
+        res.entries.forEach(e=>{
+          lines.push(`${fmtT(e.ts).padStart(9)}  ${String(e.count.toLocaleString('en-US')).padStart(7)}  ${e.by||''}`);
+        });
+        lines.push('');
+        lines.push(`Peak    ${peak.count.toLocaleString('en-US')} at ${fmtT(peak.ts)}`);
+        lines.push(`Final   ${Number(res.final).toLocaleString('en-US')}`);
+        lines.push(`Counts  ${res.entries.length}`);
+        attOut.innerHTML = `<div class="msg-box" style="margin-top:10px; white-space:pre-wrap; max-height:260px; overflow:auto;">${lines.join('\n')}</div>
+          <div class="import-picker-note">Preview only \u2014 nothing sent.${attendanceRecipients.length ? ` Would go to ${attendanceRecipients.join(', ')}.` : ' No recipients configured yet.'}</div>`;
+      })
+      .catch(e=>{
+        attOut.style.color = 'var(--safety)';
+        attOut.textContent = e.message || 'Could not build the preview.';
+      });
+  };
   document.getElementById('sendAttendanceBtn').onclick = ()=>{
     attOut.style.color = 'var(--muted)';
     attOut.textContent = 'Sending\u2026';
@@ -2398,7 +2430,7 @@ function renderHistoryTable(){
   });
 }
 
-function previewReport(cadenceMs, scopeSite){
+function previewReport(cadenceMs, scopeSite, doSend){
   const s = buildReportSummary(cadenceMs, scopeSite);
   const period = reportSettings.cadence === 'daily' ? 'Daily' : reportSettings.cadence === 'monthly' ? 'Monthly' : 'Weekly';
   const lines = [];
@@ -2451,13 +2483,18 @@ function previewReport(cadenceMs, scopeSite){
 
   const box = document.getElementById('reportPreview');
   const subject = lines[0];
+  const note = doSend
+    ? (reportSettings.recipients.length
+        ? `Sending to ${reportSettings.recipients.length} recipient(s)\u2026`
+        : 'Add a recipient email address above before this can send.')
+    : (reportSettings.recipients.length
+        ? `Preview only \u2014 nothing sent. Would go to ${reportSettings.recipients.join(', ')}.`
+        : 'Preview only \u2014 no recipients configured yet.');
   box.innerHTML = `
     <div class="msg-box" style="margin-top:14px; max-height:280px; overflow:auto;">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>
-    <div class="import-picker-note" id="reportSendNote">${reportSettings.recipients.length
-      ? `Sending to ${reportSettings.recipients.length} recipient(s)\u2026`
-      : 'Add a recipient email address above before this can send.'}</div>
+    <div class="import-picker-note" id="reportSendNote">${note}</div>
   `;
-  if(!reportSettings.recipients.length) return;
+  if(!doSend || !reportSettings.recipients.length) return;
 
   callFn('sendActivityReport', {actorId: loggedInUser.id, subject, message: text, site: scopeSite || 'ALL'})
     .then(res=>{
