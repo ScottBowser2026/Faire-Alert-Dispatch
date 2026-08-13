@@ -956,7 +956,7 @@ exports.scheduledReviewReminder = onSchedule(
 // Attendance goes to a fixed audience — Security Personnel and Mt Hope Staff,
 // plus the Teams channel. No recipient picker, so a count cannot accidentally
 // be broadcast to vendors or performers.
-const PATRON_LISTS = ['security', 'mt-hope-staff'];
+const PATRON_LISTS = ['managers', 'security', 'mt-hope-staff'];
 const TEAMS_EMAIL  = 'b1cf51b4.parenfaire.com@amer.teams.ms';
 
 exports.sendPatronCount = onCall(
