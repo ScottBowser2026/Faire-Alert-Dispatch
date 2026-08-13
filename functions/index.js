@@ -534,6 +534,7 @@ exports.getAppData = onCall({region: REGION}, async (req) => {
     sites: d.sites || {},
     activityLog: me.role === 'superadmin' ? log : log.filter((e) => e.site === me.site),
     reportSettings: d.reportSettings || {},
+    attendanceReport: d.attendanceReport || {},
   };
 });
 
