@@ -951,3 +951,96 @@ exports.scheduledReviewReminder = onSchedule(
     console.log('Scheduled review reminders:', JSON.stringify(results));
   }
 );
+
+// ---------- 14. sendPatronCount ----------
+// Attendance goes to a fixed audience — Security Personnel and Mt Hope Staff,
+// plus the Teams channel. No recipient picker, so a count cannot accidentally
+// be broadcast to vendors or performers.
+const PATRON_LISTS = ['security', 'mt-hope-staff'];
+const TEAMS_EMAIL  = 'b1cf51b4.parenfaire.com@amer.teams.ms';
+
+exports.sendPatronCount = onCall(
+  {region: REGION, secrets: [TWILIO_SID, TWILIO_TOKEN, EMAILJS_PRIVATE]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {userId, pin, site, count} = req.data || {};
+
+    const user = await getUser(userId);
+    if (user.role !== 'superadmin' && user.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Your account cannot send counts.');
+    }
+    if (user.role === 'admin' && user.site !== site) {
+      throw new HttpsError('permission-denied', 'You can only send counts for your own site.');
+    }
+
+    const pinOk = (user.pinHash && user.pinSalt)
+      ? checkPin(pin, {hash: user.pinHash, salt: user.pinSalt})
+      : (user.pin && String(user.pin) === String(pin));
+    if (!pinOk) throw new HttpsError('permission-denied', 'Incorrect PIN.');
+
+    const num = parseInt(String(count).replace(/[^\d]/g, ''), 10);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new HttpsError('invalid-argument', 'Enter a valid patron count.');
+    }
+
+    const {from} = await requireSendableSite(site);
+    const meta = await siteMeta(site);
+    const header = (meta.alertHeader || `${site} OPERATIONS ALERT`).toUpperCase();
+
+    const when = new Date().toLocaleTimeString('en-US',
+      {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'});
+    const body = `${header}\nPatron count as of ${when}: ${num.toLocaleString('en-US')}`;
+
+    // Build the fixed recipient set
+    const [recSnap, optSnap] = await Promise.all([
+      db.ref(`sites/${site}/recipients`).once('value'),
+      db.ref(`sites/${site}/optOuts`).once('value'),
+    ]);
+    const recipients = recSnap.val() || {};
+    const optOuts = optSnap.val() || {};
+    const optedOut = new Set(
+      Object.values(optOuts).map((o) => toE164(o.phone)).filter(Boolean)
+    );
+
+    const numbers = new Set();
+    PATRON_LISTS.forEach((lid) => {
+      const members = (recipients[lid] && recipients[lid].members) || {};
+      Object.values(members).forEach((m) => {
+        if (m.active === false) return;
+        const e = toE164(m.phone);
+        if (e && !optedOut.has(e)) numbers.add(e);
+      });
+    });
+
+    const results = numbers.size
+      ? await sendMany(from, Array.from(numbers), body)
+      : {sent: 0, failed: 0, errors: []};
+
+    // Post to the Teams channel as well. A failure here should not fail the
+    // whole send — the texts are the operationally important part.
+    let emailed = false;
+    try {
+      await sendEmail(
+        TEAMS_EMAIL,
+        `${site} Patron Count`,
+        `${site} patron count — ${num.toLocaleString('en-US')} as of ${when}`,
+        `Patron count as of ${when}: ${num.toLocaleString('en-US')}\n\nRecorded by ${fullName(user)} at ${meta.name || site}.`
+      );
+      emailed = true;
+    } catch (e) {
+      console.warn('Teams email failed:', e.message);
+    }
+
+    await db.ref(`sites/${site}/patronCounts`).push({
+      ts: Date.now(),
+      count: num,
+      by: fullName(user),
+    });
+
+    await logActivity('patron_count', site, fullName(user),
+      `Patron count ${num.toLocaleString('en-US')} sent`,
+      {recipients: results.sent, count: num, emailed});
+
+    return {sent: results.sent, failed: results.failed, emailed, count: num, when};
+  }
+);
