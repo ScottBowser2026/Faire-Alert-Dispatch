@@ -841,6 +841,42 @@ async function sendEmail(toEmail, toName, subject, message) {
   return true;
 }
 
+// Report sends are recorded so a failing address is visible rather than silent.
+async function recordReportSend(kind, site, recipients, results, subject, body) {
+  const failed = results.filter((r) => !r.ok);
+  await db.ref('reportHistory').push({
+    ts: Date.now(),
+    kind,
+    site: site || 'ALL',
+    total: recipients.length,
+    sent: results.filter((r) => r.ok).length,
+    failed: failed.length,
+    failures: failed.map((f) => ({to: f.to, error: (f.error || '').slice(0, 200)})),
+    subject: subject || '',
+    body: (body || '').slice(0, 4000),
+  });
+  // Trim to 30 days so the table stays readable.
+  const cutoff = Date.now() - 30 * 86400000;
+  const old = await db.ref('reportHistory').orderByChild('ts').endAt(cutoff).once('value');
+  const updates = {};
+  Object.keys(old.val() || {}).forEach((k) => { updates[k] = null; });
+  if (Object.keys(updates).length) await db.ref('reportHistory').update(updates);
+}
+
+// Sends to a list, collecting per-address outcomes rather than aborting on failure.
+async function sendEmailBatch(recipients, nameFor, subject, message) {
+  const results = [];
+  for (const to of recipients) {
+    try {
+      await sendEmail(to, nameFor, subject, message);
+      results.push({to, ok: true});
+    } catch (e) {
+      results.push({to, ok: false, error: e.message});
+    }
+  }
+  return results;
+}
+
 const STALE_DAYS = 7;
 
 async function buildReviewReminder(site) {
@@ -904,16 +940,10 @@ async function runReviewReminders(siteFilter) {
     if (!managers.length) { results[site] = {sent: 0, reason: 'no managers with an email'}; continue; }
 
     const {subject, message} = await buildReviewReminder(site);
-    let sent = 0;
-    const errors = [];
-    for (const m of managers) {
-      try {
-        await sendEmail(m.email, `${m.firstName} ${m.lastName}`.trim(), subject, message);
-        sent++;
-      } catch (e) {
-        errors.push(`${m.email}: ${e.message}`);
-      }
-    }
+    const batch = await sendEmailBatch(managers.map((m) => m.email), `${site} Alerts`, subject, message);
+    const sent = batch.filter((r) => r.ok).length;
+    const errors = batch.filter((r) => !r.ok).map((r) => `${r.to}: ${r.error}`);
+    await recordReportSend('review', site, managers.map((m) => m.email), batch, subject, message);
     results[site] = {sent, errors};
     if (sent) {
       await logActivity('list_changed', site, 'system',
@@ -1016,21 +1046,6 @@ exports.sendPatronCount = onCall(
       ? await sendMany(from, Array.from(numbers), body)
       : {sent: 0, failed: 0, errors: []};
 
-    // Post to the Teams channel as well. A failure here should not fail the
-    // whole send — the texts are the operationally important part.
-    let emailed = false;
-    try {
-      await sendEmail(
-        TEAMS_EMAIL,
-        `${site} Patron Count`,
-        `${site} patron count — ${num.toLocaleString('en-US')} as of ${when}`,
-        `Patron count as of ${when}: ${num.toLocaleString('en-US')}\n\nRecorded by ${fullName(user)} at ${meta.name || site}.`
-      );
-      emailed = true;
-    } catch (e) {
-      console.warn('Teams email failed:', e.message);
-    }
-
     await db.ref(`sites/${site}/patronCounts`).push({
       ts: Date.now(),
       count: num,
@@ -1039,8 +1054,185 @@ exports.sendPatronCount = onCall(
 
     await logActivity('patron_count', site, fullName(user),
       `Patron count ${num.toLocaleString('en-US')} sent`,
-      {recipients: results.sent, count: num, emailed});
+      {recipients: results.sent, count: num});
 
-    return {sent: results.sent, failed: results.failed, emailed, count: num, when};
+    return {sent: results.sent, failed: results.failed, count: num, when};
   }
 );
+
+// ---------- 15. Attendance report ----------
+// One end-of-day summary instead of an email per count.
+
+function pad(str, len, right) {
+  const s = String(str);
+  return right ? s.padEnd(len) : s.padStart(len);
+}
+
+async function buildAttendanceReport(site, dayKey) {
+  const snap = await db.ref(`sites/${site}/patronCounts`).once('value');
+  const all = Object.values(snap.val() || {});
+  const metaSnap = await db.ref(`sites/${site}/meta`).once('value');
+  const meta = metaSnap.val() || {};
+
+  const forDay = all.filter((c) => {
+    const d = new Date(c.ts);
+    return d.toLocaleDateString('en-CA', {timeZone: 'America/New_York'}) === dayKey;
+  }).sort((a, b) => a.ts - b.ts);
+
+  if (!forDay.length) return null;
+
+  const fmtT = (ts) => new Date(ts).toLocaleTimeString('en-US',
+    {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'});
+
+  const peak = forDay.reduce((m, c) => (c.count > m.count ? c : m), forDay[0]);
+  const final = forDay[forDay.length - 1];
+
+  const dateLabel = new Date(forDay[0].ts).toLocaleDateString('en-US',
+    {timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+
+  const lines = [];
+  lines.push(`${site} ATTENDANCE \u2014 ${dateLabel}`);
+  lines.push(meta.name || site);
+  lines.push('');
+  forDay.forEach((c) => {
+    lines.push(`${pad(fmtT(c.ts), 9)}  ${pad(c.count.toLocaleString('en-US'), 7)}  ${c.by || ''}`);
+  });
+  lines.push('');
+  lines.push(`Peak    ${peak.count.toLocaleString('en-US')} at ${fmtT(peak.ts)}`);
+  lines.push(`Final   ${final.count.toLocaleString('en-US')}`);
+  lines.push(`Counts  ${forDay.length}`);
+
+  return {
+    subject: `${site} attendance \u2014 ${dateLabel} \u2014 final ${final.count.toLocaleString('en-US')}`,
+    message: lines.join('\n'),
+    entries: forDay,
+    final: final.count,
+  };
+}
+
+async function runAttendanceReport(site, dayKey) {
+  const rpt = await buildAttendanceReport(site, dayKey);
+  if (!rpt) return {sent: 0, reason: 'no counts recorded'};
+
+  const rsSnap = await db.ref('attendanceReport').once('value');
+  const rs = rsSnap.val() || {};
+  const recipients = rs.recipients ? Object.values(rs.recipients) : [];
+  if (!recipients.length) return {sent: 0, reason: 'no recipients configured'};
+
+  const batch = await sendEmailBatch(recipients, `${site} Attendance`, rpt.subject, rpt.message);
+  const sent = batch.filter((r) => r.ok).length;
+  const errors = batch.filter((r) => !r.ok).map((r) => `${r.to}: ${r.error}`);
+  await recordReportSend('attendance', site, recipients, batch, rpt.subject, rpt.message);
+  if (sent) {
+    await logActivity('patron_count', site, 'system',
+      `Attendance report emailed to ${sent} recipient(s)`);
+  }
+  return {sent, errors, final: rpt.final, count: rpt.entries.length};
+}
+
+exports.sendAttendanceReport = onCall(
+  {region: REGION, secrets: [EMAILJS_PRIVATE]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {actorId, site, day} = req.data || {};
+    const actor = await getUser(actorId);
+    if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Not authorized.');
+    }
+    const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
+    const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+    return await runAttendanceReport(target, dayKey);
+  }
+);
+
+// 11:00 PM Eastern, every day. Silent on days with no counts.
+exports.scheduledAttendanceReport = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 23 * * *',
+    timeZone: 'America/New_York',
+    secrets: [EMAILJS_PRIVATE],
+  },
+  async () => {
+    const sitesSnap = await db.ref('sites').once('value');
+    const sites = Object.keys(sitesSnap.val() || {});
+    const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+    const out = {};
+    for (const site of sites) {
+      out[site] = await runAttendanceReport(site, dayKey);
+    }
+    console.log('Scheduled attendance reports:', JSON.stringify(out));
+  }
+);
+
+// Returns the day's counts so the client can build a CSV without extra reads.
+exports.getAttendanceDay = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, site, day} = req.data || {};
+  const actor = await getUser(actorId);
+  const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
+  const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+  const rpt = await buildAttendanceReport(target, dayKey);
+  return rpt ? {entries: rpt.entries, final: rpt.final, site: target, day: dayKey}
+             : {entries: [], site: target, day: dayKey};
+});
+
+// Recipient list for the attendance report, kept separate from the activity digest.
+exports.setAttendanceRecipients = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, recipients} = req.data || {};
+  const actor = await getUser(actorId);
+  if (actor.role !== 'superadmin') {
+    throw new HttpsError('permission-denied', 'Only a Superuser can change report recipients.');
+  }
+  const obj = {};
+  (recipients || []).forEach((e, i) => { obj['r' + i] = e; });
+  await db.ref('attendanceReport/recipients').set(obj);
+  return {ok: true};
+});
+
+// ---------- 16. Activity digest + report history ----------
+
+exports.sendActivityReport = onCall(
+  {region: REGION, secrets: [EMAILJS_PRIVATE]},
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const {actorId, subject, message, site} = req.data || {};
+    const actor = await getUser(actorId);
+    if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Not authorized.');
+    }
+
+    const rsSnap = await db.ref('reportSettings/recipients').once('value');
+    const recipients = Object.values(rsSnap.val() || {});
+    if (!recipients.length) {
+      throw new HttpsError('failed-precondition', 'No report recipients configured.');
+    }
+
+    const batch = await sendEmailBatch(recipients, 'Faire Operations', subject, message);
+    const sent = batch.filter((r) => r.ok).length;
+    await recordReportSend('activity', site || 'ALL', recipients, batch, subject, message);
+
+    return {
+      sent,
+      failed: batch.length - sent,
+      failures: batch.filter((r) => !r.ok).map((r) => ({to: r.to, error: r.error})),
+    };
+  }
+);
+
+exports.getReportHistory = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId} = req.data || {};
+  const actor = await getUser(actorId);
+
+  const snap = await db.ref('reportHistory').orderByChild('ts').limitToLast(120).once('value');
+  let rows = Object.entries(snap.val() || {}).map(([id, r]) => Object.assign({id}, r));
+  rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+  // Operations Managers only see their own site's reports.
+  if (actor.role !== 'superadmin') {
+    rows = rows.filter((r) => r.site === actor.site);
+  }
+  return {history: rows};
+});
