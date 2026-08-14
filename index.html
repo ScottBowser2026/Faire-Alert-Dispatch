@@ -1150,7 +1150,7 @@ function handleCsvImport(id, file){
   if(!file){ return; }
   if(!/\.csv$/i.test(file.name)){
     r.importError = 'Please choose a .csv file.';
-    renderRecipients();
+    renderAll();
     return;
   }
   const reader = new FileReader();
@@ -1158,7 +1158,7 @@ function handleCsvImport(id, file){
     const rows = parseCsv(String(e.target.result));
     if(rows.length < 2){
       r.importError = 'No rows found in that file.';
-      renderRecipients();
+      renderAll();
       return;
     }
     const header = rows[0].map(h=>h.trim().toLowerCase());
@@ -1166,7 +1166,7 @@ function handleCsvImport(id, file){
     const phoneIdx = header.findIndex(h=>h.includes('phone') || h.includes('mobile') || h.includes('cell'));
     if(phoneIdx === -1){
       r.importError = "Couldn't find a phone column. Header should include 'phone'.";
-      renderRecipients();
+      renderAll();
       return;
     }
     const members = [];
@@ -1199,11 +1199,12 @@ function handleCsvImport(id, file){
     r.importError = skipNotes.length
       ? `Imported ${members.length} \u00b7 skipped ${skipNotes.join(', ')}.`
       : '';
-    renderRecipients();
+    showToast(`${members.length} imported into ${r.name}`, false);
+    renderAll();
   };
   reader.onerror = ()=>{
     r.importError = 'Could not read that file.';
-    renderRecipients();
+    renderAll();
   };
   reader.readAsText(file);
 }
@@ -1933,6 +1934,13 @@ function renderRecipientsView(root){
         <input type="text" data-addphone="${r.id}" placeholder="Phone" />
         <button class="add-btn" data-addbtn="${r.id}">Add</button>
       </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">
+        <span class="import-picker-note">Bulk import:</span>
+        <button class="import-link" data-tpl="${r.id}">Download template</button>
+        <button class="import-choose-btn" data-imp="${r.id}">Upload CSV</button>
+        <span class="import-picker-note">${r.importError ? `<span style="color:var(--safety);">${r.importError}</span>` : (r.fileName ? `Last: ${r.fileName}` : '')}</span>
+      </div>
+      <div class="import-picker-note" style="margin-top:4px;">Uploading replaces everyone on this list.</div>
     `;
     holder.appendChild(sec);
 
@@ -1986,6 +1994,42 @@ function renderRecipientsView(root){
       logActivity('list_changed', activeSite, `Added ${name} to ${r.name}`);
       saveList(activeSite, r);
       renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-tpl]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.tpl);
+      const rows = [
+        'Name,Phone,Active',
+        'Jane Smith,717-555-0100,Yes',
+        'John Doe,717-555-0101,Yes',
+        'Former Staff,717-555-0102,No',
+      ].join('\n');
+      const blob = new Blob([rows], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${activeSite}-${r.name.replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase()}-template.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+  });
+
+  holder.querySelectorAll('[data-imp]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const listId = btn.dataset.imp;
+      const r = recipients.find(x=>x.id===listId);
+      if(r.members.length && !window.confirm(`Uploading will replace all ${r.members.length} people on ${r.name}.\n\nTo add a few people instead, use the Name and Phone fields above. Continue?`)) return;
+      const fi = document.createElement('input');
+      fi.type = 'file';
+      fi.accept = '.csv,text/csv';
+      fi.style.display = 'none';
+      document.body.appendChild(fi);
+      fi.onchange = (e)=>{
+        handleCsvImport(listId, e.target.files[0]);
+        document.body.removeChild(fi);
+      };
+      fi.click();
     };
   });
 
