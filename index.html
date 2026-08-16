@@ -22,6 +22,7 @@
   }
   *{box-sizing:border-box;}
   html{-webkit-text-size-adjust:100%; text-size-adjust:100%; overflow-x:hidden; max-width:100%;}
+  body.login-locked{overflow:hidden; position:fixed; width:100%; height:100%;}
   body{
     margin:0; background:var(--bg); color:var(--text);
     font-family:var(--sans); -webkit-font-smoothing:antialiased;
@@ -120,7 +121,7 @@
   }
 
   .login-screen{
-    position:fixed; top:0; left:0; width:100vw; height:100vh;
+    position:fixed; inset:0;
     background:var(--bg); display:flex; align-items:center;
     justify-content:center; z-index:100; flex-direction:column; gap:22px;
     padding:20px; overflow-y:auto; overflow-x:hidden; box-sizing:border-box;
@@ -260,7 +261,7 @@
 
   /* Overlay + modal */
   .overlay{
-    position:fixed; top:0; left:0; width:100vw; height:100vh;
+    position:fixed; inset:0;
     background:rgba(10,10,11,.72);
     display:none; align-items:center; justify-content:center; z-index:50;
     backdrop-filter:blur(2px); overflow-x:hidden;
@@ -922,6 +923,7 @@ function completeLogin(){
       selected = new Set();
       document.getElementById('verifyError').textContent = '';
       document.getElementById('loginScreen').style.display = 'none';
+      document.body.classList.remove('login-locked');
       document.getElementById('appRoot').style.display = 'flex';
       renderAll();
     })
@@ -948,6 +950,7 @@ function logOut(){
   pinEntry = '';
   document.getElementById('appRoot').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
+  document.body.classList.add('login-locked');
   document.getElementById('changePinCard').style.display = 'none';
   document.getElementById('verifyCard').style.display = 'none';
   document.getElementById('pinCard').style.display = 'block';
@@ -2996,6 +2999,7 @@ function setBootState(msg, isError){
 }
 
 async function boot(){
+  document.body.classList.add('login-locked');
   setBootState('Connecting\u2026');
   document.getElementById('keypad').style.opacity = '.3';
   document.getElementById('keypad').style.pointerEvents = 'none';
@@ -3080,6 +3084,7 @@ document.getElementById('savePinBtn').onclick = ()=>{
         document.getElementById('changePinCard').style.display = 'none';
         document.getElementById('pinCard').style.display = 'block';
         document.getElementById('loginScreen').style.display = 'none';
+        document.body.classList.remove('login-locked');
         document.getElementById('appRoot').style.display = 'flex';
         renderAll();
         showToast('PIN updated.', false);
