@@ -21,9 +21,11 @@
     --sans: 'Inter','Segoe UI',system-ui,sans-serif;
   }
   *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%; text-size-adjust:100%;}
   body{
     margin:0; background:var(--bg); color:var(--text);
     font-family:var(--sans); -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
   }
   .app{display:flex; min-height:100vh;}
   .sidebar{
@@ -120,10 +122,12 @@
   .login-screen{
     position:fixed; inset:0; background:var(--bg); display:flex; align-items:center;
     justify-content:center; z-index:100; flex-direction:column; gap:22px;
+    padding:20px; overflow-y:auto; box-sizing:border-box;
   }
   .login-card{
-    width:300px; background:var(--panel); border:1px solid var(--line); border-radius:14px;
-    padding:28px 26px; text-align:center;
+    width:100%; max-width:300px; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:28px 26px; text-align:center; box-sizing:border-box;
+    flex-shrink:0;
   }
   .login-brand{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:4px;}
   .login-title{font-size:18px; font-weight:700; margin-bottom:20px;}
@@ -352,8 +356,10 @@
     .btn{flex:1; padding:12px 16px;}
 
     /* Login card fits narrow screens */
-    .login-card{width:100%; max-width:340px;}
+    .login-card{width:100%; max-width:340px; padding:22px 18px;}
     .key{padding:16px 0; font-size:18px;}
+    .login-title{font-size:17px;}
+    .forgot-pin-input, #verifyCodeInput{font-size:16px;}
 
     h1{font-size:19px;}
     .sub{font-size:13px;}
@@ -1277,7 +1283,7 @@ function renderPatronView(root){
       <div class="login-error" id="patronError" style="margin-top:8px;"></div>
     </div>
     <div class="admin-section role-group" style="max-width:420px;">
-      <h3>Recent counts</h3>
+      <h3>Today's counts <span class="group-note">Resets each day \u00b7 history kept in Reports</span></h3>
       <div id="patronHistory"></div>
     </div>
   `;
@@ -1301,10 +1307,17 @@ function renderPatronView(root){
       .then(res=>{
         const rows = res.counts || [];
         if(!rows.length){
-          hist.innerHTML = '<div class="import-picker-note">No counts recorded yet.</div>';
+          hist.innerHTML = '<div class="import-picker-note">No counts recorded today yet.</div>';
           return;
         }
-        hist.innerHTML = rows.map(c=>`
+        const dayTotal = rows.length;
+        const latest = rows[0];
+        const peak = rows.reduce((m,c)=> c.count > m.count ? c : m, rows[0]);
+        hist.innerHTML = `<div class="import-picker-note" style="margin-bottom:8px;">
+            Latest <strong style="color:var(--text);">${Number(latest.count).toLocaleString('en-US')}</strong>
+            \u00b7 Peak ${Number(peak.count).toLocaleString('en-US')}
+            \u00b7 ${dayTotal} count${dayTotal===1?'':'s'} today
+          </div>` + rows.map(c=>`
           <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px;">
             <span style="font-family:var(--mono); font-weight:700;">${Number(c.count).toLocaleString('en-US')}</span>
             <span style="display:flex; align-items:center; gap:10px;">
