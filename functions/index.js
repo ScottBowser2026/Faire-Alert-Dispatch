@@ -1185,12 +1185,16 @@ exports.getRecentCounts = onCall({region: REGION}, async (req) => {
   const actor = await getUser(actorId);
   const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
 
+  // Today only. Older counts stay in the database and in report history —
+  // this just keeps the screen from carrying yesterday's numbers forward.
+  const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
   const snap = await db.ref(`sites/${target}/patronCounts`)
-    .orderByChild('ts').limitToLast(15).once('value');
+    .orderByChild('ts').limitToLast(60).once('value');
   const rows = Object.entries(snap.val() || {})
     .map(([id, c]) => Object.assign({id}, c))
+    .filter((c) => new Date(c.ts).toLocaleDateString('en-CA', {timeZone: 'America/New_York'}) === dayKey)
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return {counts: rows};
+  return {counts: rows, day: dayKey};
 });
 
 // Recipient list for the attendance report, kept separate from the activity digest.
