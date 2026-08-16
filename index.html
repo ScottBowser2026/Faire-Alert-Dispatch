@@ -425,6 +425,13 @@
     font-family:var(--sans);
   }
   .hist-chip.on{border-color:var(--muted); color:var(--text);}
+
+  .stage-pick{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--muted);
+    border-radius:100px; padding:5px 16px; font-size:12.5px; cursor:pointer;
+    font-family:var(--sans); margin-right:4px;
+  }
+  .stage-pick.on{background:var(--gate); border-color:var(--gate); color:#0d1a19; font-weight:700;}
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -619,7 +626,7 @@ const alerts = [
   {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
   {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
   {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
-  {cat:'gate', group:'closing', name:'Closing Early', futureTime:true, text:'Gates are closing early today at {time}. Please begin closing procedures ahead of that time.'},
+  {cat:'gate', group:'closing', name:'Gate Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Gates are closing early today at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
   {cat:'weather', group:'event', name:'Weather - Delay', futureTime:true, text:'Weather delay in effect until {time}. Hold your current position and await further instructions.'},
@@ -1415,7 +1422,7 @@ function renderCards(){
     el.setAttribute('data-cat-card', a.cat);
     el.innerHTML = `<div class="badge">${categories.find(c=>c.id===a.cat).label}</div>
       <div class="name">${a.name}</div>
-      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]')}</div>`;
+      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]')}</div>`;
     if(sendable){
       el.onclick = ()=> openModal(a);
     } else {
@@ -2676,6 +2683,16 @@ function defaultTimeValue(){
   return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
 
+function minusMinutes(hhmm, mins){
+  if(!hhmm) return '';
+  let [h, m] = hhmm.split(':').map(Number);
+  let total = h * 60 + m - mins;
+  if(total < 0) total += 24 * 60;
+  return String(Math.floor(total/60)).padStart(2,'0') + ':' + String(total % 60).padStart(2,'0');
+}
+
+let selectedStage = 'Globe Stage';
+
 function nextQuarterHour(hhmm){
   let [h, m] = hhmm.split(':').map(Number);
   let total = h * 60 + m;
@@ -2697,6 +2714,13 @@ function buildMessage(alert, timeVal, resumeVal){
   let msg = alert.text.replace('{time}', shown);
   if(msg.includes('{resume}')){
     msg = msg.replace('{resume}', formatTime12(resumeVal));
+  }
+  if(msg.includes('{booths}')){
+    const off = alert.boothOffset || 30;
+    msg = msg.replace('{booths}', timeVal ? formatTime12(minusMinutes(timeVal, off)) : `[${off} min earlier]`);
+  }
+  if(msg.includes('{stage}')){
+    msg = msg.replace('{stage}', selectedStage);
   }
   return siteHeader(activeSite) + '\n' + msg;
 }
@@ -2756,6 +2780,36 @@ function openModal(alertDef){
       document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal, resumeDefault);
       document.getElementById('timeInput').oninput = refresh;
       document.getElementById('resumeInput').oninput = refresh;
+    } else if(alert.stageChoice){
+      selectedStage = 'Globe Stage';
+      timeSlot.innerHTML = `
+        <div class="time-row">
+          <label for="timeInput">Gate close</label>
+          <input type="time" id="timeInput" value="" style="border-color:var(--weather);" />
+          <span style="font-size:11.5px; color:var(--weather);">required</span>
+        </div>
+        <div class="time-row">
+          <label>Finale at</label>
+          <button class="stage-pick on" data-stage="Globe Stage">Globe</button>
+          <button class="stage-pick" data-stage="Hart Stage">Hart</button>
+        </div>`;
+      const refreshStage = ()=>{
+        const t = document.getElementById('timeInput').value;
+        document.getElementById('msgBox').textContent = buildMessage(alert, t);
+        updateCharCount();
+      };
+      timeSlot.querySelectorAll('[data-stage]').forEach(btn=>{
+        btn.onclick = ()=>{
+          selectedStage = btn.dataset.stage;
+          timeSlot.querySelectorAll('[data-stage]').forEach(b=> b.classList.toggle('on', b === btn));
+          refreshStage();
+        };
+      });
+      document.getElementById('timeInput').oninput = (e)=>{
+        document.getElementById('timeInput').style.borderColor = e.target.value ? 'var(--clear)' : 'var(--weather)';
+        refreshStage();
+      };
+      refreshStage();
     } else if(alert.futureTime){
       // This time is a future event the manager must supply — never default to
       // the current clock, or a stray Send broadcasts the wrong time.
