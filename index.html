@@ -623,9 +623,10 @@ const categories = [
 const alerts = [
   {cat:'gate', group:'opening', name:'All Clear - Opening', text:'All clear as of {time}. Faire grounds are now closed to vehicle traffic.'},
   {cat:'gate', group:'opening', name:'Gate Expected Open Time', futureTime:true, text:'Expected gate opening is {time}. Please be in position and ready ahead of that time.'},
-  {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
-  {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
   {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
+  {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, clears:['Gate Delayed','Gate Expected Open Time'], text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
+  {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
+  {cat:'gate', group:'opening', name:'Sunset Tickets', countInput:true, fixedLists:['managers','security'], text:'Sunset tickets are now being admitted. {count} sold. Expect increased gate traffic.'},
   {cat:'gate', group:'closing', name:'Weather Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Due to weather, Gates are expected to close at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
@@ -1422,7 +1423,7 @@ function renderCards(){
     el.setAttribute('data-cat-card', a.cat);
     el.innerHTML = `<div class="badge">${categories.find(c=>c.id===a.cat).label}</div>
       <div class="name">${a.name}</div>
-      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]')}</div>`;
+      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]').replace(/\{count\}/g,'[count]')}</div>`;
     if(sendable){
       el.onclick = ()=> openModal(a);
     } else {
@@ -1440,7 +1441,11 @@ function renderCards(){
     grid.appendChild(note);
   }
 
-  const catAlerts = alerts.filter(a=>a.cat===activeCat);
+  let catAlerts = alerts.filter(a=>a.cat===activeCat);
+  if(activeCat === 'gate'){
+    const sent = sentGateAlertsToday(activeSite);
+    catAlerts = catAlerts.filter(a=> !sent.has(a.name));
+  }
   const groupsInOrder = [];
   catAlerts.forEach(a=>{ if(a.group && !groupsInOrder.includes(a.group)) groupsInOrder.push(a.group); });
 
@@ -1619,6 +1624,21 @@ function todayKey(){
 // Gates count as open once "Gates Open" has been sent for this site today.
 // Reading from the activity log means it resets on its own at midnight and
 // stays correct across devices without storing extra state.
+function sentGateAlertsToday(site){
+  const key = todayKey();
+  const sent = new Set();
+  activityLog.forEach(e=>{
+    if(e.type !== 'alert_sent' || e.site !== site) return;
+    if(new Date(e.ts).toLocaleDateString('en-CA') !== key) return;
+    if(typeof e.detail !== 'string') return;
+    const name = e.detail.split(' \u2192 ')[0].trim();
+    sent.add(name);
+    const def = alerts.find(a=>a.name === name);
+    if(def && def.clears) def.clears.forEach(c=> sent.add(c));
+  });
+  return sent;
+}
+
 function gatesOpenedToday(site){
   const key = todayKey();
   return activityLog.some(e =>
@@ -2692,6 +2712,7 @@ function minusMinutes(hhmm, mins){
 }
 
 let selectedStage = 'Globe Stage';
+let ticketCount = '';
 
 function nextQuarterHour(hhmm){
   let [h, m] = hhmm.split(':').map(Number);
@@ -2722,18 +2743,23 @@ function buildMessage(alert, timeVal, resumeVal){
   if(msg.includes('{stage}')){
     msg = msg.replace('{stage}', selectedStage);
   }
+  if(msg.includes('{count}')){
+    const v = (ticketCount || '').replace(/[^\d]/g,'');
+    msg = msg.replace('{count}', v ? Number(v).toLocaleString('en-US') : '[count]');
+  }
   return siteHeader(activeSite) + '\n' + msg;
 }
 
 function openModal(alertDef){
   const alert = alertDef;
   const recipients = recipientsBySite[activeSite];
-  if(selected.size===0){
+  if(!alertDef.fixedLists && selected.size===0){
     window.alert('Select at least one recipient list first.');
     return;
   }
-  const emptyLists = recipients.filter(r=>selected.has(r.id) && r.members.filter(m=>m.active!==false).length === 0);
-  if(emptyLists.length === selected.size){
+  const guardIds = alertDef.fixedLists || Array.from(selected);
+  const emptyLists = recipients.filter(r=>guardIds.includes(r.id) && r.members.filter(m=>m.active!==false).length === 0);
+  if(guardIds.length && emptyLists.length === guardIds.length){
     window.alert('The selected list' + (selected.size>1?'s have':' has') + ' no one on ' + (selected.size>1?'them':'it') + ' yet. Add recipients before sending.');
     return;
   }
@@ -2754,7 +2780,8 @@ function openModal(alertDef){
 
   const toRow = document.getElementById('toRow');
   toRow.innerHTML = '';
-  recipients.filter(r=>selected.has(r.id)).forEach(r=>{
+  const targetIds = alert.fixedLists || Array.from(selected);
+  recipients.filter(r=>targetIds.includes(r.id)).forEach(r=>{
     const p = document.createElement('span');
     p.className = 'to-pill';
     p.textContent = r.name + ' (' + r.members.filter(m=>m.active!==false).length + ')';
@@ -2780,6 +2807,24 @@ function openModal(alertDef){
       document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal, resumeDefault);
       document.getElementById('timeInput').oninput = refresh;
       document.getElementById('resumeInput').oninput = refresh;
+    } else if(alert.countInput){
+      ticketCount = '';
+      timeSlot.innerHTML = `
+        <div class="time-row">
+          <label for="ticketCountInput">Tickets</label>
+          <input type="number" id="ticketCountInput" inputmode="numeric" placeholder="e.g. 340"
+            style="width:120px; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:6px; padding:7px 10px; font-size:14px; font-family:var(--mono);" />
+          <span style="font-size:11.5px; color:var(--weather);">required</span>
+        </div>`;
+      const refreshCount = ()=>{
+        const el = document.getElementById('ticketCountInput');
+        ticketCount = el.value;
+        el.style.borderColor = el.value ? 'var(--clear)' : 'var(--weather)';
+        document.getElementById('msgBox').textContent = buildMessage(alert, '');
+        updateCharCount();
+      };
+      document.getElementById('ticketCountInput').oninput = refreshCount;
+      refreshCount();
     } else if(alert.stageChoice){
       selectedStage = 'Globe Stage';
       timeSlot.innerHTML = `
@@ -2904,7 +2949,8 @@ document.getElementById('confirmBtn').onclick = ()=>{
 
 
   const recipients = recipientsBySite[activeSite];
-  const chosen = recipients.filter(r=>selected.has(r.id));
+  const sendIds = pendingAlert.fixedLists || Array.from(selected);
+  const chosen = recipients.filter(r=>sendIds.includes(r.id));
   const names = chosen.map(r=>r.name).join(', ');
   const alertName = pendingAlert.name;
   const site = activeSite;
@@ -2920,6 +2966,17 @@ document.getElementById('confirmBtn').onclick = ()=>{
   btn.disabled = true;
   document.getElementById('pinConfirmError').style.color = 'var(--muted)';
   document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
+
+  if(pendingAlert.countInput){
+    const c = document.getElementById('ticketCountInput');
+    if(!c || !c.value){
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = 'Enter the ticket count before sending.';
+      if(c) c.style.borderColor = 'var(--safety)';
+      return;
+    }
+  }
 
   if(pendingAlert.futureTime){
     const t = document.getElementById('timeInput');
