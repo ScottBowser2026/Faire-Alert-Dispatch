@@ -436,6 +436,11 @@
     font-family:var(--sans); margin-right:4px;
   }
   .stage-pick.on{background:var(--gate); border-color:var(--gate); color:#0d1a19; font-weight:700;}
+
+  .app-version{
+    font-size:10px; color:var(--muted); opacity:.6; margin-top:14px;
+    font-family:var(--mono); letter-spacing:.04em;
+  }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -455,6 +460,7 @@
     <div class="keypad" id="keypad"></div>
     <div class="login-error" id="loginError"></div>
     <button class="forgot-pin-link" id="forgotPinLink">Forgot PIN?</button>
+    <div class="app-version" id="loginVersion"></div>
     <div class="forgot-pin-panel" id="forgotPinPanel" style="display:none;">
       <div class="rb-label" style="text-align:left;">Verify your identity</div>
       <input type="text" id="forgotPinPhone" class="forgot-pin-input" placeholder="Phone number" />
@@ -498,6 +504,7 @@
     <div class="site-box" id="siteBox"></div>
 
     <div id="sidebarRecipients"></div>
+    <div class="app-version" id="sidebarVersion"></div>
   </div>
 
   <div class="main">
@@ -557,6 +564,8 @@ const fns = firebase.functions();
 function callFn(name, data){
   return fns.httpsCallable(name)(data).then(r=>r.data);
 }
+
+const APP_VERSION = '2026.08.29.2010';
 
 const SITE_CODES = ['PARF','SRF','KRF','GARF'];
 
@@ -1911,6 +1920,8 @@ function renderSitesTable(){
 }
 
 function renderAll(){
+  const sv = document.getElementById('sidebarVersion');
+  if(sv) sv.textContent = 'v' + APP_VERSION;
   renderSignedInBox();
   renderSiteBox();
   renderNav();
@@ -2793,7 +2804,27 @@ function openModal(alertDef){
   });
 
   const timeSlot = document.getElementById('timeSlot');
-  if(needsTime){
+  // Sunset Tickets takes a count rather than a time, so it must be checked
+  // before the needsTime gate — its message has no {time} token.
+  if(alert.countInput){
+    ticketCount = '';
+    timeSlot.innerHTML = `
+      <div class="time-row">
+        <label for="ticketCountInput">Tickets</label>
+        <input type="number" id="ticketCountInput" inputmode="numeric" placeholder="e.g. 340"
+          style="width:120px; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:6px; padding:7px 10px; font-size:14px; font-family:var(--mono);" />
+        <span style="font-size:11.5px; color:var(--weather);">required</span>
+      </div>`;
+    const refreshCount = ()=>{
+      const el = document.getElementById('ticketCountInput');
+      ticketCount = el.value;
+      el.style.borderColor = el.value ? 'var(--clear)' : 'var(--weather)';
+      document.getElementById('msgBox').textContent = buildMessage(alert, '');
+      updateCharCount();
+    };
+    document.getElementById('ticketCountInput').oninput = refreshCount;
+    refreshCount();
+  } else if(needsTime){
     const defaultVal = defaultTimeValue();
     const needsResume = alert.text.includes('{resume}');
     if(needsResume){
@@ -2811,24 +2842,6 @@ function openModal(alertDef){
       document.getElementById('msgBox').textContent = buildMessage(alert, defaultVal, resumeDefault);
       document.getElementById('timeInput').oninput = refresh;
       document.getElementById('resumeInput').oninput = refresh;
-    } else if(alert.countInput){
-      ticketCount = '';
-      timeSlot.innerHTML = `
-        <div class="time-row">
-          <label for="ticketCountInput">Tickets</label>
-          <input type="number" id="ticketCountInput" inputmode="numeric" placeholder="e.g. 340"
-            style="width:120px; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:6px; padding:7px 10px; font-size:14px; font-family:var(--mono);" />
-          <span style="font-size:11.5px; color:var(--weather);">required</span>
-        </div>`;
-      const refreshCount = ()=>{
-        const el = document.getElementById('ticketCountInput');
-        ticketCount = el.value;
-        el.style.borderColor = el.value ? 'var(--clear)' : 'var(--weather)';
-        document.getElementById('msgBox').textContent = buildMessage(alert, '');
-        updateCharCount();
-      };
-      document.getElementById('ticketCountInput').oninput = refreshCount;
-      refreshCount();
     } else if(alert.stageChoice){
       selectedStage = 'Globe Stage';
       timeSlot.innerHTML = `
@@ -3115,6 +3128,8 @@ function setBootState(msg, isError){
 
 async function boot(){
   document.body.classList.add('login-locked');
+  const lv = document.getElementById('loginVersion');
+  if(lv) lv.textContent = 'v' + APP_VERSION;
   setBootState('Connecting\u2026');
   document.getElementById('keypad').style.opacity = '.3';
   document.getElementById('keypad').style.pointerEvents = 'none';
