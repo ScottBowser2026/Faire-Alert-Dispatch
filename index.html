@@ -231,6 +231,7 @@
   .tab[data-cat="safety"].active{border-color:var(--safety);}
   .tab[data-cat="test"].active{border-color:var(--muted);}
   .tab[data-cat="heat"].active{border-color:#e8c34d;}
+  .tab[data-cat="general"].active{border-color:var(--gate);}
 
   .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .subgroup{grid-column:1 / -1; display:flex; flex-direction:column; gap:12px;}
@@ -256,11 +257,13 @@
   [data-cat-card="safety"] .badge{background:#3a1a17; color:var(--safety);}
   [data-cat-card="test"] .badge{background:#2a2c30; color:var(--muted);}
   [data-cat-card="heat"] .badge{background:#3a3418; color:#e8c34d;}
+  [data-cat-card="general"] .badge{background:#173634; color:var(--gate);}
   [data-cat-card="gate"]{--accent:var(--gate);}
   [data-cat-card="weather"]{--accent:var(--weather);}
   [data-cat-card="safety"]{--accent:var(--safety);}
   [data-cat-card="test"]{--accent:var(--muted);}
   [data-cat-card="heat"]{--accent:#e8c34d;}
+  [data-cat-card="general"]{--accent:var(--gate);}
   .safety-critical{border-color:#5c2521 !important; background:#241413;}
 
   /* Overlay + modal */
@@ -565,7 +568,7 @@ function callFn(name, data){
   return fns.httpsCallable(name)(data).then(r=>r.data);
 }
 
-const APP_VERSION = '13';
+const APP_VERSION = '14';
 
 const SITE_CODES = ['PARF','SRF','KRF','GARF'];
 
@@ -630,6 +633,7 @@ const categories = [
   {id:'weather', label:'Weather'},
   {id:'heat', label:'Heat Advisory'},
   {id:'safety', label:'Safety Alert'},
+  {id:'general', label:'General'},
   {id:'test', label:'Test'},
 ];
 
@@ -659,6 +663,7 @@ const alerts = [
   {cat:'safety', group:'cleared', name:'All Clear - Water Emergency', text:'All clear as of {time}. The water emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Fire Emergency', text:'All clear as of {time}. The fire emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Active Shooter', text:'All clear as of {time}. The active shooter situation has been resolved. It is now safe to resume normal operations.', critical:false},
+  {cat:'general', name:'General Message', freeText:true, text:'{message}'},
   {cat:'test', name:'System Test', text:'This is a test of the Faire Operations Alert system sent at {time}. No action is needed.'},
   {cat:'test', name:'Test - Reply Requested', text:'This is a test of the Faire Operations Alert system sent at {time}. Please reply OK to confirm you received this message.'},
   {cat:'test', name:'Active Shooter Drill (Test)', text:'THIS IS A DRILL \u2014 NOT A REAL EMERGENCY. Active Shooter test alert sent at {time}. This is only a test of the Faire Operations Alert system and its response procedures.', critical:true},
@@ -1436,7 +1441,7 @@ function renderCards(){
     el.setAttribute('data-cat-card', a.cat);
     el.innerHTML = `<div class="badge">${categories.find(c=>c.id===a.cat).label}</div>
       <div class="name">${a.name}</div>
-      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]').replace(/\{count\}/g,'[count]')}</div>`;
+      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]').replace(/\{count\}/g,'[count]').replace(/\{message\}/g,'Type any message and send it to the lists you choose.')}</div>`;
     if(sendable){
       el.onclick = ()=> openModal(a);
     } else {
@@ -2728,6 +2733,7 @@ function minusMinutes(hhmm, mins){
 
 let selectedStage = 'Globe Stage';
 let ticketCount = '';
+let freeTextBody = '';
 
 function nextQuarterHour(hhmm){
   let [h, m] = hhmm.split(':').map(Number);
@@ -2757,6 +2763,9 @@ function buildMessage(alert, timeVal, resumeVal){
   }
   if(msg.includes('{stage}')){
     msg = msg.replace('{stage}', selectedStage);
+  }
+  if(msg.includes('{message}')){
+    msg = msg.replace('{message}', freeTextBody || '[type your message below]');
   }
   if(msg.includes('{count}')){
     const v = (ticketCount || '').replace(/[^\d]/g,'');
@@ -2806,7 +2815,22 @@ function openModal(alertDef){
   const timeSlot = document.getElementById('timeSlot');
   // Sunset Tickets takes a count rather than a time, so it must be checked
   // before the needsTime gate — its message has no {time} token.
-  if(alert.countInput){
+  if(alert.freeText){
+    freeTextBody = '';
+    timeSlot.innerHTML = `
+      <div class="rb-label" style="text-align:left; margin-bottom:6px;">Your message</div>
+      <textarea id="freeTextInput" rows="3" placeholder="Type the message to send…"
+        style="width:100%; box-sizing:border-box; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--sans); resize:vertical;"></textarea>`;
+    const refreshFree = ()=>{
+      const el = document.getElementById('freeTextInput');
+      freeTextBody = el.value.trim();
+      el.style.borderColor = freeTextBody ? 'var(--clear)' : 'var(--weather)';
+      document.getElementById('msgBox').textContent = buildMessage(alert, '');
+      updateCharCount();
+    };
+    document.getElementById('freeTextInput').oninput = refreshFree;
+    refreshFree();
+  } else if(alert.countInput){
     ticketCount = '';
     timeSlot.innerHTML = `
       <div class="time-row">
@@ -2983,6 +3007,17 @@ document.getElementById('confirmBtn').onclick = ()=>{
   btn.disabled = true;
   document.getElementById('pinConfirmError').style.color = 'var(--muted)';
   document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
+
+  if(pendingAlert.freeText){
+    const ft = document.getElementById('freeTextInput');
+    if(!ft || !ft.value.trim()){
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = 'Type your message before sending.';
+      if(ft) ft.style.borderColor = 'var(--safety)';
+      return;
+    }
+  }
 
   if(pendingAlert.countInput){
     const c = document.getElementById('ticketCountInput');
