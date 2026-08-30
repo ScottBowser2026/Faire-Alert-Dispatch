@@ -568,7 +568,7 @@ function callFn(name, data){
   return fns.httpsCallable(name)(data).then(r=>r.data);
 }
 
-const APP_VERSION = '14';
+const APP_VERSION = '16';
 
 const SITE_CODES = ['PARF','SRF','KRF','GARF'];
 
@@ -643,7 +643,8 @@ const alerts = [
   {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
   {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, clears:['Gate Delayed','Gate Expected Open Time'], text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
   {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
-  {cat:'gate', group:'opening', name:'Sunset Tickets', countInput:true, fixedLists:['managers','security','mt-hope-staff'], text:'Sunset tickets are now being admitted. {count} sold. Expect increased gate traffic.'},
+
+  {cat:'gate', group:'closing', name:'Sunset Tickets', countInput:true, fixedLists:['managers','security','mt-hope-staff'], text:'Sunset tickets are now being admitted. {count} sold. Expect increased gate traffic.'},
   {cat:'gate', group:'closing', name:'Weather Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Due to weather, Gates are expected to close at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
@@ -1650,6 +1651,8 @@ function sentGateAlertsToday(site){
     if(new Date(e.ts).toLocaleDateString('en-CA') !== key) return;
     if(typeof e.detail !== 'string') return;
     const name = e.detail.split(' \u2192 ')[0].trim();
+    const alertDef = alerts.find(a=>a.name === name);
+    if(alertDef && alertDef.noRollup) return;   // daily alerts stay available
     sent.add(name);
     const def = alerts.find(a=>a.name === name);
     if(def && def.clears) def.clears.forEach(c=> sent.add(c));
