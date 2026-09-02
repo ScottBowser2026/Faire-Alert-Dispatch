@@ -14,6 +14,7 @@
     --muted:#8b9099;
     --gate:#3fa7a0;
     --weather:#e8a33d;
+    --weather-nonshow:#4f7fe6;
     --safety:#d1453b;
     --clear:#4caf7d;
     --super:#e8c34d;
@@ -22,9 +23,7 @@
   }
   *{box-sizing:border-box;}
   html{-webkit-text-size-adjust:100%; text-size-adjust:100%; overflow-x:hidden; max-width:100%;}
-  html, body{width:100%; max-width:100%;}
-  input, select, textarea, button{max-width:100%; box-sizing:border-box;}
-  body.login-locked{overflow-x:hidden;}
+  body.login-locked{overflow:hidden; position:fixed; width:100%; height:100%;}
   body{
     margin:0; background:var(--bg); color:var(--text);
     font-family:var(--sans); -webkit-font-smoothing:antialiased;
@@ -123,18 +122,16 @@
   }
 
   .login-screen{
-    position:relative;
-    width:100%; max-width:100%; min-height:100vh;
+    position:fixed; inset:0;
     background:var(--bg); display:flex; align-items:center;
     justify-content:center; z-index:100; flex-direction:column; gap:22px;
-    padding:20px 20px 40px; overflow-x:hidden; box-sizing:border-box;
+    padding:20px; overflow-y:auto; overflow-x:hidden; box-sizing:border-box;
   }
   .login-card{
     width:100%; max-width:300px; background:var(--panel); border:1px solid var(--line);
     border-radius:14px; padding:28px 26px; text-align:center; box-sizing:border-box;
-    flex-shrink:0; overflow-wrap:break-word;
+    flex-shrink:0;
   }
-  .login-card *{max-width:100%; box-sizing:border-box;}
   .login-brand{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:4px;}
   .login-title{font-size:18px; font-weight:700; margin-bottom:20px;}
   .pin-dots{display:flex; justify-content:center; gap:12px; margin-bottom:20px;}
@@ -155,8 +152,7 @@
   }
   .forgot-pin-panel{margin-top:12px; text-align:left;}
   .forgot-pin-input{
-    width:100%; box-sizing:border-box;
-    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
     border-radius:8px; padding:8px 10px; font-size:13px; font-family:var(--sans); margin-top:6px;
   }
 
@@ -232,7 +228,6 @@
   .tab[data-cat="safety"].active{border-color:var(--safety);}
   .tab[data-cat="test"].active{border-color:var(--muted);}
   .tab[data-cat="heat"].active{border-color:#e8c34d;}
-  .tab[data-cat="general"].active{border-color:var(--gate);}
 
   .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .subgroup{grid-column:1 / -1; display:flex; flex-direction:column; gap:12px;}
@@ -258,24 +253,28 @@
   [data-cat-card="safety"] .badge{background:#3a1a17; color:var(--safety);}
   [data-cat-card="test"] .badge{background:#2a2c30; color:var(--muted);}
   [data-cat-card="heat"] .badge{background:#3a3418; color:#e8c34d;}
-  [data-cat-card="general"] .badge{background:#173634; color:var(--gate);}
   [data-cat-card="gate"]{--accent:var(--gate);}
   [data-cat-card="weather"]{--accent:var(--weather);}
   [data-cat-card="safety"]{--accent:var(--safety);}
   [data-cat-card="test"]{--accent:var(--muted);}
   [data-cat-card="heat"]{--accent:#e8c34d;}
-  [data-cat-card="general"]{--accent:var(--gate);}
+  [data-cat-card="weather"][data-group-card="nonshow"] .badge{background:#182444; color:var(--weather-nonshow);}
+  [data-cat-card="weather"][data-group-card="nonshow"]{--accent:var(--weather-nonshow); border-left:3px solid var(--weather-nonshow);}
+  [data-cat-card="weather"][data-group-card="event"]{border-left:3px solid var(--weather);}
   .safety-critical{border-color:#5c2521 !important; background:#241413;}
+
+  .weather-view-toggle{display:flex; gap:0; width:fit-content; margin-bottom:16px; border-radius:8px; overflow:hidden; border:1px solid var(--line);}
+  .wv-btn{padding:8px 22px; font-size:12.5px; font-weight:700; letter-spacing:.04em; cursor:pointer; border:none; background:var(--panel-2); color:var(--muted); font-family:var(--sans);}
+  .wv-btn.active[data-view="event"]{background:var(--weather); color:#241708;}
+  .wv-btn.active[data-view="nonshow"]{background:var(--weather-nonshow); color:#0d1730;}
 
   /* Overlay + modal */
   .overlay{
     position:fixed; inset:0;
     background:rgba(10,10,11,.72);
     display:none; align-items:center; justify-content:center; z-index:50;
-    backdrop-filter:blur(2px); overflow-x:hidden; overflow-y:auto;
-    padding:16px; box-sizing:border-box;
+    backdrop-filter:blur(2px); overflow-x:hidden;
   }
-  .modal{max-width:100%; box-sizing:border-box;}
   .overlay.show{display:flex;}
   .modal{
     width:440px; max-width:92vw; background:var(--panel); border:1px solid var(--line);
@@ -349,14 +348,8 @@
     .nav-btn{white-space:nowrap; flex-shrink:0;}
 
     /* Tables scroll inside their own box rather than widening the page */
-    .admin-section{
-      overflow-x:auto; -webkit-overflow-scrolling:touch;
-      max-width:100%; width:100%; box-sizing:border-box;
-    }
+    .admin-section{overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%;}
     .admin-section table.data-table{min-width:560px;}
-    /* Nothing may push the page sideways. If content is too wide it scrolls
-       inside its own container instead. */
-    .main, .sidebar, .app{min-width:0; max-width:100%; overflow-x:hidden;}
 
     /* Add-row inputs stack */
     .add-user-row{flex-direction:column; align-items:stretch;}
@@ -375,7 +368,7 @@
     .btn{flex:1; padding:12px 16px;}
 
     /* Login card fits narrow screens */
-    .login-card{width:100%; max-width:300px; padding:22px 18px;}
+    .login-card{width:100%; max-width:340px; padding:22px 18px;}
     .key{padding:16px 0; font-size:18px;}
     .login-title{font-size:17px;}
     .forgot-pin-input, #verifyCodeInput{font-size:16px;}
@@ -448,32 +441,6 @@
     font-family:var(--sans); margin-right:4px;
   }
   .stage-pick.on{background:var(--gate); border-color:var(--gate); color:#0d1a19; font-weight:700;}
-
-  .app-version{
-    font-size:10px; color:var(--muted); opacity:.6; margin-top:14px;
-    font-family:var(--mono); letter-spacing:.04em;
-  }
-
-  .update-bar{
-    display:none; position:fixed; top:0; left:0; right:0; z-index:200;
-    background:var(--gate); color:#0d1a19; padding:10px 14px;
-    font-family:var(--sans); font-size:13px; font-weight:700;
-    align-items:center; justify-content:center; gap:12px;
-    box-shadow:0 2px 10px rgba(0,0,0,.4);
-  }
-  .update-bar.show{display:flex;}
-  .update-bar button{
-    background:#0d1a19; color:var(--gate); border:none; border-radius:6px;
-    padding:6px 14px; font-family:var(--sans); font-size:12.5px; font-weight:700;
-    cursor:pointer;
-  }
-  .update-bar #updateDismissBtn{
-    background:transparent; color:#0d1a19; font-size:18px; padding:2px 8px;
-  }
-  @media (max-width:820px){
-    .update-bar{font-size:12px; padding:9px 10px; gap:8px;}
-    .update-bar button{padding:5px 10px; font-size:12px;}
-  }
 </style>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -485,12 +452,6 @@
 </head>
 <body>
 
-<div class="update-bar" id="updateBar">
-  <span id="updateText">A newer version is available.</span>
-  <button id="updateReloadBtn">Reload now</button>
-  <button id="updateDismissBtn" title="Dismiss">&times;</button>
-</div>
-
 <div class="login-screen" id="loginScreen">
   <div class="login-card" id="pinCard">
     <div class="login-brand">Faire Operations</div>
@@ -499,7 +460,6 @@
     <div class="keypad" id="keypad"></div>
     <div class="login-error" id="loginError"></div>
     <button class="forgot-pin-link" id="forgotPinLink">Forgot PIN?</button>
-    <div class="app-version" id="loginVersion"></div>
     <div class="forgot-pin-panel" id="forgotPinPanel" style="display:none;">
       <div class="rb-label" style="text-align:left;">Verify your identity</div>
       <input type="text" id="forgotPinPhone" class="forgot-pin-input" placeholder="Phone number" />
@@ -543,7 +503,6 @@
     <div class="site-box" id="siteBox"></div>
 
     <div id="sidebarRecipients"></div>
-    <div class="app-version" id="sidebarVersion"></div>
   </div>
 
   <div class="main">
@@ -603,8 +562,6 @@ const fns = firebase.functions();
 function callFn(name, data){
   return fns.httpsCallable(name)(data).then(r=>r.data);
 }
-
-const APP_VERSION = '18';
 
 const SITE_CODES = ['PARF','SRF','KRF','GARF'];
 
@@ -669,18 +626,15 @@ const categories = [
   {id:'weather', label:'Weather'},
   {id:'heat', label:'Heat Advisory'},
   {id:'safety', label:'Safety Alert'},
-  {id:'general', label:'General'},
   {id:'test', label:'Test'},
 ];
 
 const alerts = [
   {cat:'gate', group:'opening', name:'All Clear - Opening', text:'All clear as of {time}. Faire grounds are now closed to vehicle traffic.'},
   {cat:'gate', group:'opening', name:'Gate Expected Open Time', futureTime:true, text:'Expected gate opening is {time}. Please be in position and ready ahead of that time.'},
-  {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
-  {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, clears:['Gate Delayed','Gate Expected Open Time'], text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
+  {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
   {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
-
-  {cat:'gate', group:'closing', name:'Sunset Tickets', countInput:true, fixedLists:['managers','security','mt-hope-staff'], text:'Sunset tickets are now being admitted. {count} sold. Expect increased gate traffic.'},
+  {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
   {cat:'gate', group:'closing', name:'Weather Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Due to weather, Gates are expected to close at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
@@ -691,6 +645,7 @@ const alerts = [
   {cat:'weather', group:'nonshow', name:'Office Delayed Opening', futureTime:true, text:'Office opening is delayed due to weather. New opening time: {time}.'},
   {cat:'weather', group:'nonshow', name:'Office Closed (Weather)', text:'As of {time}, the office is closed today due to weather.'},
   {cat:'weather', group:'nonshow', name:'Seek Shelter (Office Day)', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
+  {cat:'weather', group:'nonshow', name:'Weather Cancellation (Office Day)', text:'As of {time}, office operations are cancelled today due to weather. Stand down and await further instructions.'},
   {cat:'weather', group:'nonshow', name:'Office Reopens / Return to Normal', futureTime:true, text:'Weather is clear as of {time}. The office has reopened. Normal operations resume.'},
   {cat:'heat', name:'Heat Advisory', futureTime:true, text:'HEAT ADVISORY \u2014 Dangerous heat conditions effective {time}. Supervisors are required to check on outdoor crews every hour, ensure hydration breaks, and be alert for symptoms of heat stress or illness.'},
   {cat:'heat', name:'Heat Advisory - All Clear', text:'HEAT ADVISORY LIFTED as of {time}. Conditions have improved. Continue to monitor crews and maintain normal hydration breaks.'},
@@ -700,7 +655,6 @@ const alerts = [
   {cat:'safety', group:'cleared', name:'All Clear - Water Emergency', text:'All clear as of {time}. The water emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Fire Emergency', text:'All clear as of {time}. The fire emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Active Shooter', text:'All clear as of {time}. The active shooter situation has been resolved. It is now safe to resume normal operations.', critical:false},
-  {cat:'general', name:'General Message', freeText:true, text:'{message}'},
   {cat:'test', name:'System Test', text:'This is a test of the Faire Operations Alert system sent at {time}. No action is needed.'},
   {cat:'test', name:'Test - Reply Requested', text:'This is a test of the Faire Operations Alert system sent at {time}. Please reply OK to confirm you received this message.'},
   {cat:'test', name:'Active Shooter Drill (Test)', text:'THIS IS A DRILL \u2014 NOT A REAL EMERGENCY. Active Shooter test alert sent at {time}. This is only a test of the Faire Operations Alert system and its response procedures.', critical:true},
@@ -716,6 +670,7 @@ let authCode = '';
 let authApprovers = [];
 let currentRole = null;
 let currentView = 'send'; // 'send' | 'admin-panel' | 'sites'
+let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is shown
 let loggedInUser = null;
 let pinEntry = '';
 let activeSite = null;
@@ -1476,9 +1431,10 @@ function renderCards(){
     const el = document.createElement('button');
     el.className = 'alert-card' + (a.critical ? ' safety-critical':'');
     el.setAttribute('data-cat-card', a.cat);
+    if(a.group) el.setAttribute('data-group-card', a.group);
     el.innerHTML = `<div class="badge">${categories.find(c=>c.id===a.cat).label}</div>
       <div class="name">${a.name}</div>
-      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]').replace(/\{count\}/g,'[count]').replace(/\{message\}/g,'Type any message and send it to the lists you choose.')}</div>`;
+      <div class="preview">${a.text.replace(/\{time\}/g,'[time]').replace(/\{resume\}/g,'[resume]').replace(/\{booths\}/g, `[${a.boothOffset || 30} min earlier]`).replace(/\{stage\}/g,'[stage]')}</div>`;
     if(sendable){
       el.onclick = ()=> openModal(a);
     } else {
@@ -1496,11 +1452,21 @@ function renderCards(){
     grid.appendChild(note);
   }
 
-  let catAlerts = alerts.filter(a=>a.cat===activeCat);
-  if(activeCat === 'gate'){
-    const sent = sentGateAlertsToday(activeSite);
-    catAlerts = catAlerts.filter(a=> !sent.has(a.name));
+  if(activeCat === 'weather'){
+    const toggle = document.createElement('div');
+    toggle.className = 'weather-view-toggle';
+    ['event','nonshow'].forEach(v=>{
+      const btn = document.createElement('button');
+      btn.className = 'wv-btn' + (weatherView === v ? ' active' : '');
+      btn.setAttribute('data-view', v);
+      btn.textContent = v === 'event' ? 'Event' : 'Non-Show';
+      btn.onclick = ()=>{ weatherView = v; renderCards(); };
+      toggle.appendChild(btn);
+    });
+    grid.appendChild(toggle);
   }
+
+  const catAlerts = alerts.filter(a=>a.cat===activeCat && (activeCat !== 'weather' || a.group === weatherView));
   const groupsInOrder = [];
   catAlerts.forEach(a=>{ if(a.group && !groupsInOrder.includes(a.group)) groupsInOrder.push(a.group); });
 
@@ -1532,13 +1498,15 @@ function renderCards(){
         return;
       }
 
-      const label = document.createElement('div');
-      label.className = 'subgroup-label';
-      label.textContent = groupLabels[group] || group;
+      if(activeCat !== 'weather'){
+        const label = document.createElement('div');
+        label.className = 'subgroup-label';
+        label.textContent = groupLabels[group] || group;
+        wrap.appendChild(label);
+      }
       const sub = document.createElement('div');
       sub.className = 'subgroup-grid';
       catAlerts.filter(a=>a.group===group).forEach(a=> sub.appendChild(makeCard(a)));
-      wrap.appendChild(label);
       wrap.appendChild(sub);
       grid.appendChild(wrap);
     });
@@ -1679,23 +1647,6 @@ function todayKey(){
 // Gates count as open once "Gates Open" has been sent for this site today.
 // Reading from the activity log means it resets on its own at midnight and
 // stays correct across devices without storing extra state.
-function sentGateAlertsToday(site){
-  const key = todayKey();
-  const sent = new Set();
-  activityLog.forEach(e=>{
-    if(e.type !== 'alert_sent' || e.site !== site) return;
-    if(new Date(e.ts).toLocaleDateString('en-CA') !== key) return;
-    if(typeof e.detail !== 'string') return;
-    const name = e.detail.split(' \u2192 ')[0].trim();
-    const alertDef = alerts.find(a=>a.name === name);
-    if(alertDef && alertDef.noRollup) return;   // daily alerts stay available
-    sent.add(name);
-    const def = alerts.find(a=>a.name === name);
-    if(def && def.clears) def.clears.forEach(c=> sent.add(c));
-  });
-  return sent;
-}
-
 function gatesOpenedToday(site){
   const key = todayKey();
   return activityLog.some(e =>
@@ -1964,8 +1915,6 @@ function renderSitesTable(){
 }
 
 function renderAll(){
-  const sv = document.getElementById('sidebarVersion');
-  if(sv) sv.textContent = 'v' + APP_VERSION;
   renderSignedInBox();
   renderSiteBox();
   renderNav();
@@ -2771,8 +2720,6 @@ function minusMinutes(hhmm, mins){
 }
 
 let selectedStage = 'Globe Stage';
-let ticketCount = '';
-let freeTextBody = '';
 
 function nextQuarterHour(hhmm){
   let [h, m] = hhmm.split(':').map(Number);
@@ -2803,26 +2750,18 @@ function buildMessage(alert, timeVal, resumeVal){
   if(msg.includes('{stage}')){
     msg = msg.replace('{stage}', selectedStage);
   }
-  if(msg.includes('{message}')){
-    msg = msg.replace('{message}', freeTextBody || '[type your message below]');
-  }
-  if(msg.includes('{count}')){
-    const v = (ticketCount || '').replace(/[^\d]/g,'');
-    msg = msg.replace('{count}', v ? Number(v).toLocaleString('en-US') : '[count]');
-  }
   return siteHeader(activeSite) + '\n' + msg;
 }
 
 function openModal(alertDef){
   const alert = alertDef;
   const recipients = recipientsBySite[activeSite];
-  if(!alertDef.fixedLists && selected.size===0){
+  if(selected.size===0){
     window.alert('Select at least one recipient list first.');
     return;
   }
-  const guardIds = alertDef.fixedLists || Array.from(selected);
-  const emptyLists = recipients.filter(r=>guardIds.includes(r.id) && r.members.filter(m=>m.active!==false).length === 0);
-  if(guardIds.length && emptyLists.length === guardIds.length){
+  const emptyLists = recipients.filter(r=>selected.has(r.id) && r.members.filter(m=>m.active!==false).length === 0);
+  if(emptyLists.length === selected.size){
     window.alert('The selected list' + (selected.size>1?'s have':' has') + ' no one on ' + (selected.size>1?'them':'it') + ' yet. Add recipients before sending.');
     return;
   }
@@ -2843,8 +2782,7 @@ function openModal(alertDef){
 
   const toRow = document.getElementById('toRow');
   toRow.innerHTML = '';
-  const targetIds = alert.fixedLists || Array.from(selected);
-  recipients.filter(r=>targetIds.includes(r.id)).forEach(r=>{
+  recipients.filter(r=>selected.has(r.id)).forEach(r=>{
     const p = document.createElement('span');
     p.className = 'to-pill';
     p.textContent = r.name + ' (' + r.members.filter(m=>m.active!==false).length + ')';
@@ -2852,42 +2790,7 @@ function openModal(alertDef){
   });
 
   const timeSlot = document.getElementById('timeSlot');
-  // Sunset Tickets takes a count rather than a time, so it must be checked
-  // before the needsTime gate — its message has no {time} token.
-  if(alert.freeText){
-    freeTextBody = '';
-    timeSlot.innerHTML = `
-      <div class="rb-label" style="text-align:left; margin-bottom:6px;">Your message</div>
-      <textarea id="freeTextInput" rows="3" placeholder="Type the message to send…"
-        style="width:100%; box-sizing:border-box; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:8px; padding:10px; font-size:13px; font-family:var(--sans); resize:vertical;"></textarea>`;
-    const refreshFree = ()=>{
-      const el = document.getElementById('freeTextInput');
-      freeTextBody = el.value.trim();
-      el.style.borderColor = freeTextBody ? 'var(--clear)' : 'var(--weather)';
-      document.getElementById('msgBox').textContent = buildMessage(alert, '');
-      updateCharCount();
-    };
-    document.getElementById('freeTextInput').oninput = refreshFree;
-    refreshFree();
-  } else if(alert.countInput){
-    ticketCount = '';
-    timeSlot.innerHTML = `
-      <div class="time-row">
-        <label for="ticketCountInput">Tickets</label>
-        <input type="number" id="ticketCountInput" inputmode="numeric" placeholder="e.g. 340"
-          style="width:120px; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:6px; padding:7px 10px; font-size:14px; font-family:var(--mono);" />
-        <span style="font-size:11.5px; color:var(--weather);">required</span>
-      </div>`;
-    const refreshCount = ()=>{
-      const el = document.getElementById('ticketCountInput');
-      ticketCount = el.value;
-      el.style.borderColor = el.value ? 'var(--clear)' : 'var(--weather)';
-      document.getElementById('msgBox').textContent = buildMessage(alert, '');
-      updateCharCount();
-    };
-    document.getElementById('ticketCountInput').oninput = refreshCount;
-    refreshCount();
-  } else if(needsTime){
+  if(needsTime){
     const defaultVal = defaultTimeValue();
     const needsResume = alert.text.includes('{resume}');
     if(needsResume){
@@ -3029,8 +2932,7 @@ document.getElementById('confirmBtn').onclick = ()=>{
 
 
   const recipients = recipientsBySite[activeSite];
-  const sendIds = pendingAlert.fixedLists || Array.from(selected);
-  const chosen = recipients.filter(r=>sendIds.includes(r.id));
+  const chosen = recipients.filter(r=>selected.has(r.id));
   const names = chosen.map(r=>r.name).join(', ');
   const alertName = pendingAlert.name;
   const site = activeSite;
@@ -3046,28 +2948,6 @@ document.getElementById('confirmBtn').onclick = ()=>{
   btn.disabled = true;
   document.getElementById('pinConfirmError').style.color = 'var(--muted)';
   document.getElementById('pinConfirmError').textContent = 'Sending\u2026';
-
-  if(pendingAlert.freeText){
-    const ft = document.getElementById('freeTextInput');
-    if(!ft || !ft.value.trim()){
-      btn.disabled = false;
-      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
-      document.getElementById('pinConfirmError').textContent = 'Type your message before sending.';
-      if(ft) ft.style.borderColor = 'var(--safety)';
-      return;
-    }
-  }
-
-  if(pendingAlert.countInput){
-    const c = document.getElementById('ticketCountInput');
-    if(!c || !c.value){
-      btn.disabled = false;
-      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
-      document.getElementById('pinConfirmError').textContent = 'Enter the ticket count before sending.';
-      if(c) c.style.borderColor = 'var(--safety)';
-      return;
-    }
-  }
 
   if(pendingAlert.futureTime){
     const t = document.getElementById('timeInput');
@@ -3200,62 +3080,8 @@ function setBootState(msg, isError){
   if(el && isError){ el.textContent = 'Check your connection and refresh.'; }
 }
 
-// ---------- Version check ----------
-// Fetches this same page bypassing the cache and compares the version stamp.
-// GitHub Pages caches aggressively, so without this people can sit on an old
-// build for hours without knowing.
-let latestSeenVersion = null;
-let updateDismissed = false;
-
-async function checkForUpdate(){
-  try {
-    const res = await fetch(location.pathname + '?vcheck=' + Date.now(), {cache:'no-store'});
-    if(!res.ok) return;
-    const text = await res.text();
-    const m = text.match(/const APP_VERSION = '([^']+)'/);
-    if(!m) return;
-    const latest = m[1];
-    latestSeenVersion = latest;
-    if(latest !== APP_VERSION && !updateDismissed){
-      const bar = document.getElementById('updateBar');
-      document.getElementById('updateText').textContent =
-        `Version ${latest} is available \u2014 you are on ${APP_VERSION}.`;
-      bar.classList.add('show');
-    }
-  } catch(e){
-    // Offline or unreachable. Not worth surfacing — the app still works.
-  }
-}
-
-function forceReload(){
-  const v = latestSeenVersion || Date.now();
-  // Clear any caches the browser is holding, then load with a fresh query
-  // string so no intermediate cache can serve the old file.
-  const go = ()=>{ location.replace(location.pathname + '?v=' + v); };
-  if(window.caches && caches.keys){
-    caches.keys().then(keys=> Promise.all(keys.map(k=> caches.delete(k)))).then(go).catch(go);
-  } else {
-    go();
-  }
-}
-
-document.getElementById('updateReloadBtn').onclick = forceReload;
-document.getElementById('updateDismissBtn').onclick = ()=>{
-  updateDismissed = true;
-  document.getElementById('updateBar').classList.remove('show');
-};
-
-// Check on load, when the tab regains focus, and every ten minutes.
-setTimeout(checkForUpdate, 3000);
-setInterval(checkForUpdate, 10 * 60 * 1000);
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible') checkForUpdate();
-});
-
 async function boot(){
   document.body.classList.add('login-locked');
-  const lv = document.getElementById('loginVersion');
-  if(lv) lv.textContent = 'v' + APP_VERSION;
   setBootState('Connecting\u2026');
   document.getElementById('keypad').style.opacity = '.3';
   document.getElementById('keypad').style.pointerEvents = 'none';
