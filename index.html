@@ -268,6 +268,20 @@
   .wv-btn.active[data-view="event"]{background:var(--weather); color:#241708;}
   .wv-btn.active[data-view="nonshow"]{background:var(--weather-nonshow); color:#0d1730;}
 
+  .update-banner{
+    position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(120%);
+    background:var(--panel); border:1px solid var(--gate); border-radius:10px;
+    padding:12px 14px 12px 16px; display:flex; align-items:center; gap:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,.45); z-index:80; font-family:var(--sans);
+    transition:transform .25s ease;
+  }
+  .update-banner.show{transform:translateX(-50%) translateY(0);}
+  .update-banner span{font-size:13px; color:var(--text);}
+  .update-banner button{
+    background:var(--gate); color:#0d1a19; border:none; border-radius:6px;
+    padding:7px 14px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:var(--sans);
+  }
+
   /* Overlay + modal */
   .overlay{
     position:fixed; inset:0;
@@ -671,6 +685,40 @@ let authApprovers = [];
 let currentRole = null;
 let currentView = 'send'; // 'send' | 'admin-panel' | 'sites'
 let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is shown
+
+// --- Version / freshness check ---------------------------------------
+// Bump APP_VERSION here AND the "version" value in version.json on every
+// deploy. Clients poll version.json; a mismatch means someone is running
+// a stale cached copy and gets prompted to reload the latest build.
+const APP_VERSION = '2026.09.02.1';
+let updateBannerShown = false;
+
+function showUpdateBanner(){
+  if(updateBannerShown) return;
+  updateBannerShown = true;
+  const el = document.createElement('div');
+  el.className = 'update-banner';
+  el.innerHTML = `<span>A new version of this app is available.</span><button>Reload</button>`;
+  el.querySelector('button').onclick = ()=> window.location.reload();
+  document.body.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+}
+
+function checkForUpdate(){
+  fetch('version.json?_=' + Date.now(), {cache:'no-store'})
+    .then(r=> r.ok ? r.json() : null)
+    .then(data=>{
+      if(data && data.version && data.version !== APP_VERSION) showUpdateBanner();
+    })
+    .catch(()=>{ /* offline or blocked — ignore, try again next interval */ });
+}
+
+function startUpdateWatcher(){
+  checkForUpdate();
+  setInterval(checkForUpdate, 5 * 60 * 1000); // re-check every 5 minutes
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkForUpdate(); });
+  window.addEventListener('focus', checkForUpdate);
+}
 let loggedInUser = null;
 let pinEntry = '';
 let activeSite = null;
@@ -3101,6 +3149,7 @@ async function boot(){
 }
 
 boot();
+startUpdateWatcher();
 
 document.getElementById('verifyCodeBtn').onclick = ()=>{
   const entered = document.getElementById('verifyCodeInput').value.trim();
