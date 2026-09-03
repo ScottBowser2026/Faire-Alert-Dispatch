@@ -282,6 +282,20 @@
     padding:7px 14px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:var(--sans);
   }
 
+  .general-card{
+    grid-column:1 / -1; background:transparent; border:1px dashed var(--line); border-radius:10px;
+    padding:16px; cursor:pointer; text-align:left; color:var(--text); font-family:var(--sans);
+    display:flex; align-items:center; gap:12px; transition:border-color .15s, background .15s;
+    margin-top:2px;
+  }
+  .general-card:hover{border-color:var(--muted); background:var(--panel);}
+  .general-card .gc-plus{
+    font-size:19px; font-weight:700; color:var(--muted); width:28px; height:28px; border-radius:50%;
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .general-card .gc-copy .name{font-weight:700; font-size:14.5px; margin-bottom:2px;}
+  .general-card .gc-copy .preview{color:var(--muted); font-size:12.5px;}
+
   /* Overlay + modal */
   .overlay{
     position:fixed; inset:0;
@@ -690,7 +704,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.02.1';
+const APP_VERSION = '2026.09.03.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -1561,6 +1575,19 @@ function renderCards(){
   } else {
     catAlerts.forEach(a=> grid.appendChild(makeCard(a)));
   }
+
+  const generalCard = document.createElement('button');
+  generalCard.className = 'general-card';
+  generalCard.innerHTML = `<span class="gc-plus">+</span>
+    <span class="gc-copy"><div class="name">General Alert</div><div class="preview">Write a one-off message — not tied to a preset alert type.</div></span>`;
+  if(sendable){
+    generalCard.onclick = ()=> openModal({name:'General Alert', cat:'general', text:''});
+  } else {
+    generalCard.disabled = true;
+    generalCard.style.cursor = 'default';
+    generalCard.style.opacity = '.55';
+  }
+  grid.appendChild(generalCard);
 }
 
 function renderAdminPanelView(root){
