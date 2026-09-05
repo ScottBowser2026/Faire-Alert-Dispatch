@@ -662,6 +662,7 @@ const alerts = [
   {cat:'gate', group:'opening', name:'Gate Expected Open Time', futureTime:true, text:'Expected gate opening is {time}. Please be in position and ready ahead of that time.'},
   {cat:'gate', group:'opening', name:'Gate Pen Open', futureTime:true, text:'Gate pen is open as of {time}. Patrons are queueing. Be in position.'},
   {cat:'gate', group:'opening', name:'Gates Open', futureTime:true, text:'Gates are open as of {time}.'},
+  {cat:'gate', group:'opening', name:'Sunset Tickets', text:'Sunset tickets are now being admitted. {count} sold. Expect increased gate traffic.'},
   {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
   {cat:'gate', group:'closing', name:'Weather Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Due to weather, Gates are expected to close at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
@@ -705,7 +706,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.05.1';
+const APP_VERSION = '2026.09.05.2';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -2813,7 +2814,7 @@ function siteHeader(code){
   return ((s && s.alertHeader) || `${code} OPERATIONS ALERT`).toUpperCase();
 }
 
-function buildMessage(alert, timeVal, resumeVal){
+function buildMessage(alert, timeVal, resumeVal, countVal){
   const shown = timeVal ? formatTime12(timeVal) : '[enter time]';
   let msg = alert.text.replace('{time}', shown);
   if(msg.includes('{resume}')){
@@ -2825,6 +2826,9 @@ function buildMessage(alert, timeVal, resumeVal){
   }
   if(msg.includes('{stage}')){
     msg = msg.replace('{stage}', selectedStage);
+  }
+  if(msg.includes('{count}')){
+    msg = msg.replace('{count}', countVal ? Number(countVal).toLocaleString('en-US') : '[count]');
   }
   return siteHeader(activeSite) + '\n' + msg;
 }
@@ -2937,6 +2941,20 @@ function openModal(alertDef){
         updateCharCount();
       };
     }
+  } else if(alert.text.includes('{count}')){
+    timeSlot.innerHTML = `
+      <div class="time-row">
+        <label for="countInput">Tickets sold</label>
+        <input type="number" id="countInput" min="0" inputmode="numeric" placeholder="0"
+          style="width:90px; background:var(--panel-2); border:1px solid var(--weather); color:var(--text); border-radius:6px; padding:6px 10px; font-size:13px; font-family:var(--mono);" />
+        <span style="font-size:11.5px; color:var(--weather);">required</span>
+      </div>`;
+    document.getElementById('msgBox').textContent = buildMessage(alert, '', '', '');
+    document.getElementById('countInput').oninput = (e)=>{
+      document.getElementById('countInput').style.borderColor = e.target.value ? 'var(--clear)' : 'var(--weather)';
+      document.getElementById('msgBox').textContent = buildMessage(alert, '', '', e.target.value);
+      updateCharCount();
+    };
   } else {
     timeSlot.innerHTML = '';
     document.getElementById('msgBox').textContent = siteHeader(activeSite) + '\n' + alert.text;
@@ -3032,6 +3050,17 @@ document.getElementById('confirmBtn').onclick = ()=>{
       document.getElementById('pinConfirmError').style.color = 'var(--safety)';
       document.getElementById('pinConfirmError').textContent = 'Enter the time before sending.';
       if(t) t.style.borderColor = 'var(--safety)';
+      return;
+    }
+  }
+
+  if(pendingAlert.text.includes('{count}')){
+    const c = document.getElementById('countInput');
+    if(!c || !c.value){
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = 'Enter the number of tickets sold before sending.';
+      if(c) c.style.borderColor = 'var(--safety)';
       return;
     }
   }
