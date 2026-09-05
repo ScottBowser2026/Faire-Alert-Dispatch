@@ -665,6 +665,7 @@ const alerts = [
   {cat:'gate', group:'opening', name:'Gate Delayed', futureTime:true, text:'Gate opening is delayed. New opening time: {time}. Hold your current position and await further instructions.'},
   {cat:'gate', group:'closing', name:'Weather Early Close', futureTime:true, boothOffset:45, stageChoice:true, text:'Due to weather, Gates are expected to close at {time}. Food, bars, and vendors close at {booths}. Finale is at the {stage}, starting 15 minutes after the Joust ends.'},
   {cat:'gate', group:'closing', name:'Gates Closed', text:'Gates are now closed to patrons as of {time}. No further admittance.'},
+  {cat:'gate', group:'closing', name:'EAP - Back 40 Exit Plan', text:'Back 40 Exit Plan now in effect as of 6:00 p.m. All patrons, employees, and vendors parked in the Back 40 will exit through the Back 40 Exit. Watch the lights on the Back 40 poles and follow alert messaging for guidance.'},
   {cat:'gate', group:'closing', name:'All Clear - Closing', text:'All clear as of {time}. Faire grounds are now open to vehicle traffic.'},
   {cat:'weather', group:'event', name:'Weather - Delay', futureTime:true, text:'Weather delay in effect until {time}. Hold your current position and await further instructions.'},
   {cat:'weather', group:'event', name:'Weather Alert - Seek Shelter', text:'Weather Alert as of {time}: Seek shelter now. Move indoors or to your designated shelter area immediately.'},
@@ -704,7 +705,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.03.1';
+const APP_VERSION = '2026.09.05.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
