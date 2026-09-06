@@ -706,7 +706,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.05.2';
+const APP_VERSION = '2026.09.06.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -2047,7 +2047,9 @@ function renderRecipientsView(root){
     const sec = document.createElement('div');
     sec.className = 'admin-section';
     sec.innerHTML = `
-      <h3>${r.name} <span style="color:var(--muted); font-weight:400;">\u00b7 ${r.members.filter(m=>m.active!==false).length} active of ${r.members.length}</span></h3>
+      <h3>${r.name} <span style="color:var(--muted); font-weight:400;">\u00b7 ${r.members.filter(m=>m.active!==false).length} active of ${r.members.length}</span>
+        <button class="edit-link" data-rename="${r.id}" style="margin-left:10px; font-weight:600;">Rename</button>
+      </h3>
       <div class="import-picker-note" style="color:${status.stale ? 'var(--weather)' : 'var(--muted)'}; margin-bottom:10px;">
         ${status.text}
         <button class="edit-link" data-review="${r.id}" style="margin-left:10px;">Mark reviewed</button>
@@ -2238,6 +2240,22 @@ function renderRecipientsView(root){
       logActivity('list_changed', activeSite, `${r.name} marked reviewed`);
       saveList(activeSite, r);
       showToast(`${r.name} marked reviewed.`, false);
+      renderAll();
+    };
+  });
+
+  holder.querySelectorAll('[data-rename]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = recipients.find(x=>x.id===btn.dataset.rename);
+      const next = window.prompt('Rename this list:', r.name);
+      if(next === null) return; // cancelled
+      const trimmed = next.trim();
+      if(!trimmed || trimmed === r.name) return;
+      const oldName = r.name;
+      r.name = trimmed;
+      logActivity('list_changed', activeSite, `Renamed "${oldName}" to "${trimmed}"`);
+      saveList(activeSite, r);
+      showToast(`Renamed to ${trimmed}.`, false);
       renderAll();
     };
   });
