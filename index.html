@@ -706,7 +706,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.06.1';
+const APP_VERSION = '2026.09.06.3';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -738,6 +738,7 @@ function startUpdateWatcher(){
 let loggedInUser = null;
 let pinEntry = '';
 let activeSite = null;
+let staffFilterSite = 'ALL';
 
 function fullName(u){ return `${u.firstName} ${u.lastName}`.trim(); }
 
@@ -752,10 +753,13 @@ function objToArr(obj, idKey){
   });
 }
 
-function defaultLists(){
+function defaultLists(code){
   return [
     {id:'managers', name:'Managers'},
-    {id:'mt-hope-staff', name:'Mt Hope Staff'},
+    // Default label matches the site it belongs to (PARF Staff, SRF Staff, etc.)
+    // This only applies when a site has never had this list explicitly renamed \u2014
+    // once a name is saved to the database it always wins (see loadAll).
+    {id:'mt-hope-staff', name:`${code} Staff`},
     {id:'security', name:'Security Personnel'},
     {id:'vendors-permanent', name:'Vendors \u2014 Permanent'},
     {id:'vendors-guest', name:'Vendors \u2014 Guest'},
@@ -786,7 +790,7 @@ async function loadAll(uid){
   SITE_CODES.forEach(code=>{
     const siteNode = (d.sites && d.sites[code]) || {};
     const recNode = siteNode.recipients || {};
-    recipientsBySite[code] = defaultLists().map(def=>{
+    recipientsBySite[code] = defaultLists(code).map(def=>{
       const r = recNode[def.id] || {};
       return {
         id: def.id,
@@ -1610,6 +1614,15 @@ function renderAdminPanelView(root){
 
     <div class="admin-section role-group staff-group">
       <h3><span class="role-badge">${ICON_ADMIN}</span> Staff Accounts <span class="group-note">Operations Managers \u2014 scoped to one site</span></h3>
+      ${superadmin ? `
+      <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+        <label for="staffSiteFilter" style="color:var(--muted); font-size:13px;">Filter by site:</label>
+        <select id="staffSiteFilter">
+          <option value="ALL" ${staffFilterSite==='ALL'?'selected':''}>All sites</option>
+          ${SITE_CODES.map(c=>`<option value="${c}" ${c===staffFilterSite?'selected':''}>${c} \u2014 ${siteName(c)}</option>`).join('')}
+        </select>
+      </div>
+      ` : ''}
       <table class="data-table">
         <thead><tr><th>Last Name</th><th>First Name</th><th>Phone</th><th>Email</th><th>Site</th><th>PIN</th><th>Role</th><th></th></tr></thead>
         <tbody id="staffBody"></tbody>
@@ -1647,6 +1660,14 @@ function renderAdminPanelView(root){
     </div>
   `;
   renderUsersTable();
+
+  const staffFilter = document.getElementById('staffSiteFilter');
+  if(staffFilter){
+    staffFilter.onchange = ()=>{
+      staffFilterSite = staffFilter.value;
+      renderUsersTable();
+    };
+  }
 
   const migBtn = document.getElementById('migratePinsBtn');
   if(migBtn){
@@ -1755,13 +1776,17 @@ function renderUsersTable(){
   staffBody.innerHTML = '';
 
   const supers = visibleUsers.filter(u=>u.role === 'superadmin');
-  const staff = visibleUsers.filter(u=>u.role !== 'superadmin');
+  const staffFilterActive = superadmin && staffFilterSite !== 'ALL';
+  const staff = visibleUsers
+    .filter(u=>u.role !== 'superadmin')
+    .filter(u=> staffFilterActive ? u.site === staffFilterSite : true);
 
   if(superBody && supers.length === 0){
     superBody.innerHTML = `<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:14px 0;">No Superusers.</td></tr>`;
   }
   if(staff.length === 0){
-    staffBody.innerHTML = `<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:14px 0;">No staff accounts${superadmin ? '' : ' for ' + activeSite}.</td></tr>`;
+    const noneLabel = staffFilterActive ? staffFilterSite : (superadmin ? '' : activeSite);
+    staffBody.innerHTML = `<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:14px 0;">No staff accounts${noneLabel ? ' for ' + noneLabel : ''}.</td></tr>`;
   }
 
   const userRowsQuery = (sel)=>{
@@ -1771,7 +1796,7 @@ function renderUsersTable(){
     return out;
   };
 
-  visibleUsers.forEach(u=>{
+  [...supers, ...staff].forEach(u=>{
     const target = (u.role === 'superadmin') ? superBody : staffBody;
     if(!target) return;
     const tr = document.createElement('tr');
