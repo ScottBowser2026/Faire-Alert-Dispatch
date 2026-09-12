@@ -133,6 +133,7 @@
     flex-shrink:0;
   }
   .login-brand{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:4px;}
+  .login-footer{font-size:11px; color:var(--muted); text-align:center; max-width:300px; line-height:1.5; padding:0 10px;}
   .login-title{font-size:18px; font-weight:700; margin-bottom:20px;}
   .pin-dots{display:flex; justify-content:center; gap:12px; margin-bottom:20px;}
   .pin-dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--line); background:transparent; transition:background .1s, border-color .1s;}
@@ -482,7 +483,7 @@
 
 <div class="login-screen" id="loginScreen">
   <div class="login-card" id="pinCard">
-    <div class="login-brand">Faire Operations</div>
+    <div class="login-brand">Lancelot Entertainment &middot; Faire Operations</div>
     <div class="login-title">Enter your PIN</div>
     <div class="pin-dots" id="pinDots"></div>
     <div class="keypad" id="keypad"></div>
@@ -498,7 +499,7 @@
   </div>
 
   <div class="login-card" id="changePinCard" style="display:none;">
-    <div class="login-brand">Faire Operations</div>
+    <div class="login-brand">Lancelot Entertainment &middot; Faire Operations</div>
     <div class="login-title" id="changePinTitle">Set your PIN</div>
     <div class="rb-label" id="changePinWhy" style="text-align:left; margin-bottom:10px;"></div>
     <input type="password" id="currentPinInput" class="forgot-pin-input" placeholder="Current PIN" maxlength="4" inputmode="numeric" style="text-align:center; letter-spacing:6px; font-family:var(--mono);" />
@@ -510,7 +511,7 @@
   </div>
 
   <div class="login-card" id="verifyCard" style="display:none;">
-    <div class="login-brand">Faire Operations</div>
+    <div class="login-brand">Lancelot Entertainment &middot; Faire Operations</div>
     <div class="login-title">Verify it's you</div>
     <div class="rb-label" id="verifySentTo" style="text-align:left; margin-bottom:10px;"></div>
     <input type="text" id="verifyCodeInput" class="forgot-pin-input" placeholder="6-digit code" maxlength="6" style="text-align:center; letter-spacing:4px; font-family:var(--mono); font-size:16px;" />
@@ -518,6 +519,11 @@
     <div class="login-error" id="verifyError"></div>
     <div class="import-picker-note" id="verifyDemoNote" style="margin-top:10px;"></div>
     <button class="forgot-pin-link" id="verifyBackBtn" style="margin-top:8px;">Back to PIN</button>
+  </div>
+
+  <div class="login-footer" id="loginFooter">
+    Operated by Lancelot Entertainment Investment Co. for internal staff, vendor, and performer alerts.<br>
+    Not a public service. Questions? Contact your Superuser.
   </div>
 </div>
 
@@ -706,7 +712,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.06.3';
+const APP_VERSION = '2026.09.12.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -739,6 +745,7 @@ let loggedInUser = null;
 let pinEntry = '';
 let activeSite = null;
 let staffFilterSite = 'ALL';
+let reportFilterSite = 'ALL';
 
 function fullName(u){ return `${u.firstName} ${u.lastName}`.trim(); }
 
@@ -2327,7 +2334,7 @@ function buildReportSummary(sinceMs, scopeSite){
 
 function renderReportsView(root){
   const superuser = isSuperadmin();
-  const scopeSite = superuser ? null : activeSite;
+  const scopeSite = superuser ? (reportFilterSite === 'ALL' ? null : reportFilterSite) : activeSite;
   const cadenceMs = reportSettings.cadence === 'daily' ? 86400000
                   : reportSettings.cadence === 'monthly' ? 2592000000
                   : 604800000;
@@ -2339,6 +2346,16 @@ function renderReportsView(root){
     <div class="sub">${superuser
       ? 'Activity across all sites, and the email digest sent to Lancelot administration.'
       : `Activity for ${siteName(activeSite)}. You can send a report for your property at any time.`}</div>
+
+    ${superuser ? `
+    <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+      <label for="reportSiteFilter" style="color:var(--muted); font-size:13px;">Filter by site:</label>
+      <select id="reportSiteFilter">
+        <option value="ALL" ${reportFilterSite==='ALL'?'selected':''}>All sites</option>
+        ${SITE_CODES.map(c=>`<option value="${c}" ${c===reportFilterSite?'selected':''}>${c} \u2014 ${siteName(c)}</option>`).join('')}
+      </select>
+    </div>
+    ` : ''}
 
     <button class="report-summary" data-panel="activity">
       <div>
@@ -2415,6 +2432,14 @@ function renderReportsView(root){
       </table>
     </div>
   `;
+
+  const reportSiteFilter = document.getElementById('reportSiteFilter');
+  if(reportSiteFilter){
+    reportSiteFilter.onchange = ()=>{
+      reportFilterSite = reportSiteFilter.value;
+      renderAll();
+    };
+  }
 
   const listEl = document.getElementById('reportRecipientList');
   if(reportSettings.recipients.length === 0){
