@@ -712,7 +712,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.12.3';
+const APP_VERSION = '2026.09.17.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -1665,6 +1665,21 @@ function renderAdminPanelView(root){
       </div>
       <div class="login-error" id="addUserError" style="margin-top:8px;"></div>
     </div>
+
+    <div class="admin-section">
+      <h3>Import Operations Managers <span class="group-note">Bulk-add staff from a CSV — same role at every site</span></h3>
+      <div class="import-picker-note" style="margin-bottom:10px;">
+        Columns: Last Name, First Name, Phone, Email, Site, PIN. Leave PIN blank to have one
+        auto-assigned (each person is required to change it on first login anyway).
+        ${superadmin ? 'Site must be one of: ' + SITE_CODES.join(', ') + '.' : `Site is ignored — everyone imported here is added to ${activeSite}.`}
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+        <button class="add-btn" id="downloadImportTemplateBtn" type="button">Download CSV template</button>
+        <input type="file" id="importCsvFile" accept=".csv,text/csv" />
+      </div>
+      <div id="importPreviewWrap"></div>
+      <div class="login-error" id="importError" style="margin-top:8px;"></div>
+    </div>
   `;
   renderUsersTable();
 
@@ -1738,6 +1753,112 @@ function renderAdminPanelView(root){
         err.textContent = e.message || 'Could not save the account.';
       });
   };
+
+  // ---- Import Operations Managers (CSV) ----
+  function parseImportCsv(text){
+    const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+    if(!lines.length) return [];
+    let start = 0;
+    if(/last\s*name/i.test(lines[0]) && /first\s*name/i.test(lines[0])) start = 1;
+    const rows = [];
+    for(let i=start;i<lines.length;i++){
+      const cols = lines[i].split(',').map(c=>c.trim());
+      const [lastName, firstName, phone, email, site, pin] = cols;
+      rows.push({
+        lastName: lastName||'', firstName: firstName||'', phone: phone||'',
+        email: email||'', site: (site||'').toUpperCase(), pin: pin||'',
+      });
+    }
+    return rows;
+  }
+
+  function renderImportPreview(rows){
+    const wrap = document.getElementById('importPreviewWrap');
+    if(!wrap) return;
+    if(!rows.length){ wrap.innerHTML=''; return; }
+    wrap.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>Last Name</th><th>First Name</th><th>Phone</th><th>Email</th><th>Site</th><th>PIN</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td>${r.lastName}</td><td>${r.firstName}</td><td>${r.phone}</td><td>${r.email}</td><td>${superadmin ? (r.site||'') : activeSite}</td><td>${r.pin || '<span style="color:var(--muted)">auto</span>'}</td></tr>`).join('')}</tbody>
+      </table>
+      <button class="add-btn" id="runImportBtn" style="margin-top:10px;">Import ${rows.length} account${rows.length===1?'':'s'} as Operations Manager${rows.length===1?'':'s'}</button>
+    `;
+    document.getElementById('runImportBtn').onclick = ()=>{
+      const err = document.getElementById('importError');
+      err.textContent = '';
+      const accounts = rows.map(r=>({
+        firstName: r.firstName, lastName: r.lastName, phone: r.phone, email: r.email,
+        site: superadmin ? r.site : activeSite,
+        pin: r.pin, role: 'admin',
+      }));
+      const btn = document.getElementById('runImportBtn');
+      btn.disabled = true;
+      btn.textContent = 'Importing…';
+      callFn('bulkImportUsers', {actorId: loggedInUser.id, accounts})
+        .then(res=>{
+          const ok = res.results.filter(r=>r.ok);
+          const bad = res.results.filter(r=>!r.ok);
+          wrap.innerHTML = `
+            <div class="import-picker-note" style="margin-bottom:8px;">
+              ${ok.length} account(s) created${bad.length?`, ${bad.length} skipped`:''}.
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Row</th><th>Name</th><th>Site</th><th>PIN</th><th>Result</th></tr></thead>
+              <tbody>${res.results.map(r=>`<tr><td>${r.row}</td><td>${(r.firstName||r.name)?`${r.firstName||''} ${r.lastName||r.name||''}`.trim():'—'}</td><td>${r.site||''}</td><td>${r.ok ? r.pin : ''}</td><td style="color:${r.ok?'var(--clear)':'var(--safety)'}">${r.ok ? 'Created' : (r.error||'Failed')}</td></tr>`).join('')}</tbody>
+            </table>
+          `;
+          const fileInput = document.getElementById('importCsvFile');
+          if(fileInput) fileInput.value = '';
+          return loadAll();
+        })
+        .then(()=>{ renderUsersTable(); })
+        .catch(e=>{
+          err.textContent = e.message || 'Import failed.';
+          btn.disabled = false;
+          btn.textContent = `Import ${rows.length} account${rows.length===1?'':'s'} as Operations Manager${rows.length===1?'':'s'}`;
+        });
+    };
+  }
+
+  const templateBtn = document.getElementById('downloadImportTemplateBtn');
+  if(templateBtn){
+    templateBtn.onclick = ()=>{
+      const header = 'Last Name,First Name,Phone,Email,Site,PIN\n';
+      const sample = superadmin
+        ? 'Smith,Jane,717-555-0100,,PARF,\nDoe,John,717-555-0101,,SRF,\n'
+        : `Smith,Jane,717-555-0100,,${activeSite},\nDoe,John,717-555-0101,,${activeSite},\n`;
+      const blob = new Blob([header + sample], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'operations-managers-import-template.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    };
+  }
+
+  const csvInput = document.getElementById('importCsvFile');
+  if(csvInput){
+    csvInput.onchange = (e)=>{
+      const file = e.target.files[0];
+      const err = document.getElementById('importError');
+      err.textContent = '';
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        const rows = parseImportCsv(String(reader.result));
+        if(!rows.length){
+          err.textContent = 'No rows found in that file.';
+          return;
+        }
+        renderImportPreview(rows);
+      };
+      reader.onerror = ()=>{ err.textContent = 'Could not read that file.'; };
+      reader.readAsText(file);
+    };
+  }
 }
 
 let editingUserId = null;
