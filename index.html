@@ -688,9 +688,11 @@ const alerts = [
   {cat:'safety', group:'emergency', name:'Emergency - Water', text:'Emergency: Water incident reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Emergency - Fire', text:'Emergency: Fire reported on site. Wait for further instructions.', critical:false},
   {cat:'safety', group:'emergency', name:'Active Shooter', text:'ACTIVE SHOOTER on site. RUN, HIDE, FIGHT. Call 911 immediately. This is not a drill.', critical:true},
+  {cat:'safety', group:'emergency', name:'Lost Person', lostPerson:true, critical:false, text:'Description-based alert — age, hair/eye color, clothing, and other details you enter are sent to help everyone look for this person.'},
   {cat:'safety', group:'cleared', name:'All Clear - Water Emergency', text:'All clear as of {time}. The water emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Fire Emergency', text:'All clear as of {time}. The fire emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Active Shooter', text:'All clear as of {time}. The active shooter situation has been resolved. It is now safe to resume normal operations.', critical:false},
+  {cat:'safety', group:'cleared', name:'Lost Person Found', text:'The lost person reported earlier has been located and is safe as of {time}. Thank you for your help.', critical:false},
   {cat:'test', name:'System Test', text:'This is a test of the Faire Operations Alert system sent at {time}. No action is needed.'},
   {cat:'test', name:'Test - Reply Requested', text:'This is a test of the Faire Operations Alert system sent at {time}. Please reply OK to confirm you received this message.'},
   {cat:'test', name:'Active Shooter Drill (Test)', text:'THIS IS A DRILL \u2014 NOT A REAL EMERGENCY. Active Shooter test alert sent at {time}. This is only a test of the Faire Operations Alert system and its response procedures.', critical:true},
@@ -712,7 +714,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.17.1';
+const APP_VERSION = '2026.09.20.1';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -3022,6 +3024,33 @@ function buildMessage(alert, timeVal, resumeVal, countVal){
   return siteHeader(activeSite) + '\n' + msg;
 }
 
+function buildLostPersonMessage(f){
+  const lines = ['LOST PERSON'];
+  lines.push(`Age: ${f.age || '[age]'}`);
+  lines.push(`Hair: ${f.hair || '[hair color]'}`);
+  lines.push(`Eyes: ${f.eyes || '[eye color]'}`);
+  const clothing = [f.top, f.bottom].filter(Boolean).join(', ');
+  lines.push(`Wearing: ${clothing || '[clothing]'}${f.hat ? ', wearing a hat' : ''}`);
+  if(f.medical) lines.push(`Medical: ${f.medical}`);
+  if(f.other) lines.push(`Other: ${f.other}`);
+  lines.push('If seen, contact a Manager immediately. Do not approach alone.');
+  return siteHeader(activeSite) + '\n' + lines.join('\n');
+}
+
+function lostPersonFieldValues(){
+  const val = (id)=> (document.getElementById(id)?.value || '').trim();
+  return {
+    age: val('lpAge'),
+    hair: val('lpHair'),
+    eyes: val('lpEyes'),
+    top: val('lpTop'),
+    bottom: val('lpBottom'),
+    hat: document.getElementById('lpHat')?.value === 'yes',
+    medical: val('lpMedical'),
+    other: val('lpOther'),
+  };
+}
+
 function openModal(alertDef){
   const alert = alertDef;
   const recipients = recipientsBySite[activeSite];
@@ -3059,7 +3088,44 @@ function openModal(alertDef){
   });
 
   const timeSlot = document.getElementById('timeSlot');
-  if(needsTime){
+  if(alert.lostPerson){
+    const req = (id, label, ph)=>`
+      <div class="time-row"><label for="${id}">${label}</label>
+        <input type="text" id="${id}" placeholder="${ph||''}" style="border-color:var(--weather);" />
+      </div>`;
+    timeSlot.innerHTML = `
+      ${req('lpAge','Age','e.g. 7, or "adult"')}
+      ${req('lpHair','Hair color')}
+      ${req('lpEyes','Eye color')}
+      ${req('lpTop','Clothing — top')}
+      ${req('lpBottom','Clothing — bottom')}
+      <div class="time-row">
+        <label for="lpHat">Wearing a hat?</label>
+        <select id="lpHat"><option value="no">No</option><option value="yes">Yes</option></select>
+      </div>
+      <div class="time-row"><label for="lpMedical">Medical (optional)</label>
+        <input type="text" id="lpMedical" placeholder="Allergies, conditions, medication, etc." />
+      </div>
+      <div class="time-row"><label for="lpOther">Other description (optional)</label>
+        <input type="text" id="lpOther" placeholder="Anything else that stands out" />
+      </div>
+      <span style="font-size:11.5px; color:var(--weather);">Age, hair, eyes, and clothing are required</span>
+    `;
+    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom'];
+    const refreshLostPerson = ()=>{
+      requiredIds.forEach(id=>{
+        const el = document.getElementById(id);
+        el.style.borderColor = el.value.trim() ? 'var(--clear)' : 'var(--weather)';
+      });
+      document.getElementById('msgBox').textContent = buildLostPersonMessage(lostPersonFieldValues());
+      updateCharCount();
+    };
+    [...requiredIds, 'lpHat', 'lpMedical', 'lpOther'].forEach(id=>{
+      document.getElementById(id).addEventListener('input', refreshLostPerson);
+      document.getElementById(id).addEventListener('change', refreshLostPerson);
+    });
+    refreshLostPerson();
+  } else if(needsTime){
     const defaultVal = defaultTimeValue();
     const needsResume = alert.text.includes('{resume}');
     if(needsResume){
@@ -3250,6 +3316,18 @@ document.getElementById('confirmBtn').onclick = ()=>{
       document.getElementById('pinConfirmError').style.color = 'var(--safety)';
       document.getElementById('pinConfirmError').textContent = 'Enter the number of tickets sold before sending.';
       if(c) c.style.borderColor = 'var(--safety)';
+      return;
+    }
+  }
+
+  if(pendingAlert.lostPerson){
+    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom'];
+    const missing = requiredIds.filter(id => !(document.getElementById(id)?.value || '').trim());
+    if(missing.length){
+      btn.disabled = false;
+      document.getElementById('pinConfirmError').style.color = 'var(--safety)';
+      document.getElementById('pinConfirmError').textContent = 'Fill in age, hair, eyes, and clothing before sending.';
+      missing.forEach(id => { const el = document.getElementById(id); if(el) el.style.borderColor = 'var(--safety)'; });
       return;
     }
   }
