@@ -692,7 +692,7 @@ const alerts = [
   {cat:'safety', group:'cleared', name:'All Clear - Water Emergency', text:'All clear as of {time}. The water emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Fire Emergency', text:'All clear as of {time}. The fire emergency has been resolved. Normal operations may resume.', critical:false},
   {cat:'safety', group:'cleared', name:'All Clear - Active Shooter', text:'All clear as of {time}. The active shooter situation has been resolved. It is now safe to resume normal operations.', critical:false},
-  {cat:'safety', group:'cleared', name:'Lost Person Found', text:'The lost person reported earlier has been located and is safe as of {time}. Thank you for your help.', critical:false},
+  {cat:'safety', group:'cleared', name:'Lost Person Found', text:'The lost person reported earlier has been found and reunited as of {time}. Thank you for your help — no further action needed.', critical:false},
   {cat:'test', name:'System Test', text:'This is a test of the Faire Operations Alert system sent at {time}. No action is needed.'},
   {cat:'test', name:'Test - Reply Requested', text:'This is a test of the Faire Operations Alert system sent at {time}. Please reply OK to confirm you received this message.'},
   {cat:'test', name:'Active Shooter Drill (Test)', text:'THIS IS A DRILL \u2014 NOT A REAL EMERGENCY. Active Shooter test alert sent at {time}. This is only a test of the Faire Operations Alert system and its response procedures.', critical:true},
@@ -714,7 +714,7 @@ let weatherView = 'event'; // 'event' | 'nonshow' — which Weather subgroup is 
 // Bump APP_VERSION here AND the "version" value in version.json on every
 // deploy. Clients poll version.json; a mismatch means someone is running
 // a stale cached copy and gets prompted to reload the latest build.
-const APP_VERSION = '2026.09.20.1';
+const APP_VERSION = '2026.09.20.3';
 let updateBannerShown = false;
 
 function showUpdateBanner(){
@@ -3031,6 +3031,7 @@ function buildLostPersonMessage(f){
   lines.push(`Eyes: ${f.eyes || '[eye color]'}`);
   const clothing = [f.top, f.bottom].filter(Boolean).join(', ');
   lines.push(`Wearing: ${clothing || '[clothing]'}${f.hat ? ', wearing a hat' : ''}`);
+  lines.push(`Last seen: ${f.lastLocation || '[last known location]'}`);
   if(f.medical) lines.push(`Medical: ${f.medical}`);
   if(f.other) lines.push(`Other: ${f.other}`);
   lines.push('If seen, contact a Manager immediately. Do not approach alone.');
@@ -3046,6 +3047,7 @@ function lostPersonFieldValues(){
     top: val('lpTop'),
     bottom: val('lpBottom'),
     hat: document.getElementById('lpHat')?.value === 'yes',
+    lastLocation: val('lpLastLocation'),
     medical: val('lpMedical'),
     other: val('lpOther'),
   };
@@ -3103,15 +3105,16 @@ function openModal(alertDef){
         <label for="lpHat">Wearing a hat?</label>
         <select id="lpHat"><option value="no">No</option><option value="yes">Yes</option></select>
       </div>
+      ${req('lpLastLocation','Last known location','e.g. near the Joust field')}
       <div class="time-row"><label for="lpMedical">Medical (optional)</label>
         <input type="text" id="lpMedical" placeholder="Allergies, conditions, medication, etc." />
       </div>
       <div class="time-row"><label for="lpOther">Other description (optional)</label>
         <input type="text" id="lpOther" placeholder="Anything else that stands out" />
       </div>
-      <span style="font-size:11.5px; color:var(--weather);">Age, hair, eyes, and clothing are required</span>
+      <span style="font-size:11.5px; color:var(--weather);">Age, hair, eyes, clothing, and last known location are required</span>
     `;
-    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom'];
+    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom','lpLastLocation'];
     const refreshLostPerson = ()=>{
       requiredIds.forEach(id=>{
         const el = document.getElementById(id);
@@ -3321,12 +3324,12 @@ document.getElementById('confirmBtn').onclick = ()=>{
   }
 
   if(pendingAlert.lostPerson){
-    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom'];
+    const requiredIds = ['lpAge','lpHair','lpEyes','lpTop','lpBottom','lpLastLocation'];
     const missing = requiredIds.filter(id => !(document.getElementById(id)?.value || '').trim());
     if(missing.length){
       btn.disabled = false;
       document.getElementById('pinConfirmError').style.color = 'var(--safety)';
-      document.getElementById('pinConfirmError').textContent = 'Fill in age, hair, eyes, and clothing before sending.';
+      document.getElementById('pinConfirmError').textContent = 'Fill in age, hair, eyes, clothing, and last known location before sending.';
       missing.forEach(id => { const el = document.getElementById(id); if(el) el.style.borderColor = 'var(--safety)'; });
       return;
     }
