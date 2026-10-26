@@ -1,6 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+// Host gate: the real app only renders on the verified custom domain.
+// Default Firebase addresses (*.web.app / *.firebaseapp.com) get bounced
+// to a plain, login-free notice page instead. See restricted.html.
+(function () {
+  var allowedHosts = ["alerts.lancelotbiz.com", "localhost", "127.0.0.1"];
+  if (allowedHosts.indexOf(window.location.hostname) === -1) {
+    window.location.replace("/restricted.html");
+  }
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PARF Alert Dispatch</title>
