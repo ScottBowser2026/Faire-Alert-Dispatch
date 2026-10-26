@@ -7,6 +7,7 @@
     "rules": "database.rules.json"
   },
   "hosting": {
+    "site": "lancelot-alerts-v2",
     "public": ".",
     "ignore": [
       "firebase.json",
