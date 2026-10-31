@@ -1,7 +1,7 @@
 {
   "name": "faire-alert-dispatch-functions",
   "description": "Cloud Functions for the Faire Alert Dispatch system",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "dependencies": {
     "firebase-admin": "^12.1.0",
