@@ -931,7 +931,7 @@ const EMAILJS_PRIVATE = defineSecret('EMAILJS_PRIVATE');
 
 const EMAILJS_SERVICE  = 'service_inri5q5';
 const EMAILJS_TEMPLATE = 'template_56axz1i';
-const EMAILJS_PUBLIC   = 'sB7w0MyBj_u6ayu_0';
+const EMAILJS_PUBLIC   = 'SJmpLfL-sFiy6y2Nb';
 
 async function sendEmail(toEmail, toName, subject, message) {
   const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
