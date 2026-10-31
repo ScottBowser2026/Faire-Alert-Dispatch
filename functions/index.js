@@ -14,6 +14,21 @@ admin.initializeApp({
 const db = admin.database();
 
 const REGION = 'us-central1';
+const SITE_CODES = ['PARF', 'SRF', 'KRF', 'GARF'];
+
+// Each site's own local time zone, used for every timestamp shown to staff
+// at that site (alert text, patron counts, attendance reports, day
+// boundaries). SRF (Waxahachie, TX) is Central; the rest are Eastern.
+// Falls back to Eastern for an unrecognized/missing site code.
+const SITE_TIMEZONES = {
+  PARF: 'America/New_York',
+  SRF:  'America/Chicago',
+  KRF:  'America/New_York',
+  GARF: 'America/New_York',
+};
+function tzForSite(site) {
+  return SITE_TIMEZONES[site] || 'America/New_York';
+}
 
 // ---------- helpers ----------
 
@@ -276,7 +291,7 @@ exports.verifyCode = onCall({region: REGION}, async (req) => {
         const meta = await siteMeta(site);
         const from = toE164(meta.tollFree);
         if (from && (meta.status || 'pending') === 'live') {
-          const when = new Date().toLocaleString('en-US', {timeZone: 'America/New_York'});
+          const when = new Date().toLocaleString('en-US', {timeZone: tzForSite(site)});
           const body = `Faire Operations login: ${fullName(user)} (${user.role === 'superadmin' ? 'Superuser' : 'Operations Manager'}) signed in at ${when}.`;
           await sendMany(from, supers, body);
         }
@@ -761,6 +776,108 @@ function pinProblem(pin) {
   return null;
 }
 
+// ---------- 12b. bulkImportUsers ----------
+// CSV-driven bulk creation of Operations Manager (or Superuser) accounts, so
+// a new or growing site doesn't need one-at-a-time entry through Add an account.
+// Any row without a PIN gets one auto-generated (never weak, never a duplicate).
+exports.bulkImportUsers = onCall({region: REGION}, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const {actorId, accounts} = req.data || {};
+  const actor = await getUser(actorId);
+  if (actor.role !== 'superadmin' && actor.role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Not authorized.');
+  }
+  if (!Array.isArray(accounts) || !accounts.length) {
+    throw new HttpsError('invalid-argument', 'No accounts provided.');
+  }
+  if (accounts.length > 200) {
+    throw new HttpsError('invalid-argument', 'Import is limited to 200 accounts at a time.');
+  }
+
+  const usersSnap = await db.ref('users').once('value');
+  const all = usersSnap.val() || {};
+  const hashedUsers = Object.values(all).filter((u) => u.pinHash && u.pinSalt);
+  const usedPins = new Set(
+    Object.values(all).filter((u) => u.pin).map((u) => String(u.pin))
+  );
+
+  function pinInUse(pin) {
+    if (usedPins.has(pin)) return true;
+    return hashedUsers.some((u) => checkPin(pin, {hash: u.pinHash, salt: u.pinSalt}));
+  }
+
+  function randomPin() {
+    for (let tries = 0; tries < 500; tries++) {
+      const candidate = String(Math.floor(1000 + Math.random() * 9000));
+      if (pinProblem(candidate)) continue;
+      if (pinInUse(candidate)) continue;
+      return candidate;
+    }
+    throw new HttpsError('resource-exhausted', 'Could not generate a unique PIN — try again.');
+  }
+
+  const results = [];
+  const touchedSites = new Set();
+
+  for (let i = 0; i < accounts.length; i++) {
+    const raw = accounts[i] || {};
+    const firstName = String(raw.firstName || '').trim();
+    const lastName = String(raw.lastName || '').trim();
+    const phone = String(raw.phone || '').trim();
+    const email = String(raw.email || '').trim();
+    const role = raw.role === 'superadmin' ? 'superadmin' : 'admin';
+    const site = role === 'superadmin' ? 'ALL' : String(raw.site || '').trim().toUpperCase();
+    let pin = String(raw.pin || '').trim();
+
+    const row = i + 1;
+    if (!firstName || !lastName || !phone || (role !== 'superadmin' && !site)) {
+      results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: 'Missing required field(s).'});
+      continue;
+    }
+    if (role !== 'superadmin' && !SITE_CODES.includes(site)) {
+      results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: `Unknown site "${site}".`});
+      continue;
+    }
+    if (role === 'superadmin' && actor.role !== 'superadmin') {
+      results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: 'Only a Superuser can create a Superuser.'});
+      continue;
+    }
+    if (actor.role === 'admin' && site !== actor.site) {
+      results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: 'You can only import accounts for your own site.'});
+      continue;
+    }
+    if (pin) {
+      const problem = pinProblem(pin);
+      if (problem) { results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: problem}); continue; }
+      if (pinInUse(pin)) { results.push({row, ok: false, name: `${firstName} ${lastName}`.trim(), error: 'That PIN is already in use.'}); continue; }
+    } else {
+      pin = randomPin();
+    }
+    usedPins.add(pin);
+
+    const rec = makePinRecord(pin);
+    const id = 'u' + Date.now() + '_' + i;
+    await db.ref(`users/${id}`).set({
+      firstName, lastName, phone, email,
+      role, site,
+      pinHash: rec.hash, pinSalt: rec.salt,
+      mustChangePin: true,
+    });
+    if (role !== 'superadmin') touchedSites.add(site);
+    results.push({row, ok: true, id, firstName, lastName, site, pin});
+  }
+
+  for (const code of touchedSites) {
+    try { await syncManagersForSite(code); } catch (e) { console.warn('manager sync failed:', e.message); }
+  }
+  const createdCount = results.filter((r) => r.ok).length;
+  if (createdCount) {
+    await logActivity('user_changed', [...touchedSites].join(', ') || 'ALL', fullName(actor),
+      `Bulk imported ${createdCount} account(s)`);
+  }
+  return {results};
+});
+
 exports.changePin = onCall({region: REGION}, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
   const {userId, currentPin, newPin} = req.data || {};
@@ -1019,7 +1136,7 @@ exports.sendPatronCount = onCall(
     const header = (meta.alertHeader || `${site} OPERATIONS ALERT`).toUpperCase();
 
     const when = new Date().toLocaleTimeString('en-US',
-      {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'});
+      {timeZone: tzForSite(site), hour: 'numeric', minute: '2-digit'});
     const body = `${header}\nPatron count as of ${when}: ${num.toLocaleString('en-US')}`;
 
     // Build the fixed recipient set
@@ -1077,19 +1194,19 @@ async function buildAttendanceReport(site, dayKey) {
 
   const forDay = all.filter((c) => {
     const d = new Date(c.ts);
-    return d.toLocaleDateString('en-CA', {timeZone: 'America/New_York'}) === dayKey;
+    return d.toLocaleDateString('en-CA', {timeZone: tzForSite(site)}) === dayKey;
   }).sort((a, b) => a.ts - b.ts);
 
   if (!forDay.length) return null;
 
   const fmtT = (ts) => new Date(ts).toLocaleTimeString('en-US',
-    {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'});
+    {timeZone: tzForSite(site), hour: 'numeric', minute: '2-digit'});
 
   const peak = forDay.reduce((m, c) => (c.count > m.count ? c : m), forDay[0]);
   const final = forDay[forDay.length - 1];
 
   const dateLabel = new Date(forDay[0].ts).toLocaleDateString('en-US',
-    {timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+    {timeZone: tzForSite(site), weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
 
   const lines = [];
   lines.push(`${site} ATTENDANCE \u2014 ${dateLabel}`);
@@ -1141,7 +1258,7 @@ exports.sendAttendanceReport = onCall(
       throw new HttpsError('permission-denied', 'Not authorized.');
     }
     const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
-    const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+    const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: tzForSite(target)});
     return await runAttendanceReport(target, dayKey);
   }
 );
@@ -1157,9 +1274,9 @@ exports.scheduledAttendanceReport = onSchedule(
   async () => {
     const sitesSnap = await db.ref('sites').once('value');
     const sites = Object.keys(sitesSnap.val() || {});
-    const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
     const out = {};
     for (const site of sites) {
+      const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: tzForSite(site)});
       out[site] = await runAttendanceReport(site, dayKey);
     }
     console.log('Scheduled attendance reports:', JSON.stringify(out));
@@ -1172,7 +1289,7 @@ exports.getAttendanceDay = onCall({region: REGION}, async (req) => {
   const {actorId, site, day} = req.data || {};
   const actor = await getUser(actorId);
   const target = actor.role === 'superadmin' ? (site || 'PARF') : actor.site;
-  const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+  const dayKey = day || new Date().toLocaleDateString('en-CA', {timeZone: tzForSite(target)});
   const rpt = await buildAttendanceReport(target, dayKey);
   return rpt ? {entries: rpt.entries, final: rpt.final, site: target, day: dayKey}
              : {entries: [], site: target, day: dayKey};
@@ -1187,12 +1304,12 @@ exports.getRecentCounts = onCall({region: REGION}, async (req) => {
 
   // Today only. Older counts stay in the database and in report history —
   // this just keeps the screen from carrying yesterday's numbers forward.
-  const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: 'America/New_York'});
+  const dayKey = new Date().toLocaleDateString('en-CA', {timeZone: tzForSite(target)});
   const snap = await db.ref(`sites/${target}/patronCounts`)
     .orderByChild('ts').limitToLast(60).once('value');
   const rows = Object.entries(snap.val() || {})
     .map(([id, c]) => Object.assign({id}, c))
-    .filter((c) => new Date(c.ts).toLocaleDateString('en-CA', {timeZone: 'America/New_York'}) === dayKey)
+    .filter((c) => new Date(c.ts).toLocaleDateString('en-CA', {timeZone: tzForSite(target)}) === dayKey)
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
   return {counts: rows, day: dayKey};
 });
@@ -1277,7 +1394,7 @@ exports.deletePatronCount = onCall({region: REGION}, async (req) => {
   await ref.remove();
   await logActivity('patron_count', site, fullName(actor),
     `Removed patron count of ${Number(entry.count).toLocaleString('en-US')} recorded at ` +
-    new Date(entry.ts).toLocaleTimeString('en-US', {timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit'}));
+    new Date(entry.ts).toLocaleTimeString('en-US', {timeZone: tzForSite(site), hour: 'numeric', minute: '2-digit'}));
 
   return {ok: true};
 });
